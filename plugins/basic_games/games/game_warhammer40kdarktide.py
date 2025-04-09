@@ -1,16 +1,44 @@
+import base64
+import logging
+import zlib
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import mobase
-from PyQt6.QtCore import QDir
+from PyQt6.QtCore import QDir, Qt
+from PyQt6.QtGui import QAction, QIcon, QPixmap
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QSizePolicy,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..basic_game import BasicGame
+
+SETTINGS_ICON = QIcon(
+    QPixmap(
+        zlib.decompress(
+            base64.b85decode(
+                "c$|IIYg^h#6bJD4=TpQAy~IH0K9fR2Cn3>zuVA(GQ3O%jlBfIq-|d+b+-i5-6Z7N;{GFT`CP)!U5m^&)h@#u*_^)4gu!Y!W3J(dd$R@mkZE}u>hfXkO_&$d&x!{Itcug+R2Hpe<CO9wPEm;UD7`!8E?zw}Q?1dH*cF1EKpFz@^r(8lWSaP9w4t=thN^*D~tekSP0!GfIkqkJwP^Ho!$R!_RKQdS|yt4yE=E4aBnrxNFydkGbN(Z(z9vmFGG)!AagAK!3I{4696zBn2C@nP%$yyY`!AG(ani<H*1@@_6L@tHLIeuy_E5*Q*E2FfBJlNtg<2c2}MmZRhx$#CpNfugZ1=Yq{jA56oCFdOWTI<|ssDqu>-Wb>?8xhw0pf$Fi!Xeoji#{SdQLqw@$zG+(zzMl9%1StGZLLY+GkI*e9>ZB{m)aC2<kC1PU>clCDVc-w*0^p8zL1Ry_qu59Qs?24Y^`@1z6N`vnKUqKZJo66jcm139<In<c~QVMxo|EOFejI(OfB35=R7rDz=EuulsPQPM&`J;Z^@-MzJgV7A><g>>W-|v&lTL0jT_4X9)iaVH_#Zqlk+rJ0)CJy&v1|Z3@&+EDh})5iu+V4Xvk%5@%xRUt+(3Zd~I9KI@eyk=UY(((W|&0zfkt<O$1wU+<CG3XIrq{fBExH$G(T|{{~_Uu_drjeXKZ6{wr`gpWlSP8?5=o-al={dJ`z?`lLQS!NTjw^_~7#025ekpso+DFWNv)LzluuiIHz#ug=ep59+;x`s8l>*h7~_DC)Ybv!I<Ms}FFH+wQX_F;J9jb7K@!m*w+7sK<aRM$75o@{d54Z34IqY`R*qlTMQSF@g$`%TY2~E|*g!m(%XEKo$ZCezsgao+Eq~+5jumW(4~0k(9gPnuLY&6v(pd69qcc)l{i0V-g4G#N{TShL~sra#t1EFgwoVYT1n$^l8atNVI`PV}?p*=eu3J$5d_tq7C#GgKFI@*rZZdNoR^}J_h7)ILrz?X|UGe9DM0?!-OQT%?KjJG1$79F@}T8c6V?^mJ)yZ*ro^kVNj}SX2~#9Z2i#dB-7Py2iIXU!e}%)l8dGpj7HO`STySjJ9rY<36=b48iv;}lV)<X!WNAO=6`R|-lUn(_qAS|WCzzYF^AAUeX@yr>vh$|$u=`;tk)?#yuNtyV1#LYzsGs5d+i&CIc(|q?*x08%$nwBbw6vj#$maS53in|oo;HZy?$saUzYgd^XX~vF$$0WJElXKPz7UycrX|gcn&`7N73Jh1DTN"
+            )
+        )
+        .decode()
+        .splitlines()
+    )
+)
 
 
 class Warhammer40000DarktideGame(BasicGame):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.1"
+    Version = "1.0.2"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -19,113 +47,216 @@ class Warhammer40000DarktideGame(BasicGame):
     GameBinary = "binaries/Darktide.exe"
     GameDataPath = "mods"
 
+    def settings(self):
+        return [
+            mobase.PluginSetting(
+                "combine_with_unmanaged_mods",
+                "Include unmanaged mods from an existing mod_load_order.txt alongside those managed by Mod Organizer 2.\n\n"
+                "If a mod appears in both places, MO2 will always take priority—deciding which version is used and whether the mod is enabled.",
+                False,
+            ),
+            mobase.PluginSetting(
+                "load_unmanaged_mods_first",
+                "When combining with unmanaged mods, list them at the top of mod_load_order.txt so they are loaded first.\n\n"
+                "Disabling this will list them at the bottom, giving MO2-managed mods higher load priority.",
+                False,
+            ),
+        ]
+
     def init(self, organizer: mobase.IOrganizer):
         super().init(organizer)
         self.organizer = organizer
-        organizer.onAboutToRun(lambda *a: self.onAboutToRun(*a))
-        organizer.modList().onModMoved(lambda *a: self.onModMoved(*a))
-        organizer.modList().onModStateChanged(lambda a: self.onModStateChanged(a))
+
+        # register events
+        organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
+        organizer.onAboutToRun(self.onAboutToRun)
+        organizer.modList().onModMoved(self.onModMoved)
+        organizer.modList().onModStateChanged(self.onModStateChanged)
+        organizer.modList().onModInstalled(self.onModInstalled)
+        organizer.modList().onModRemoved(self.onModRemoved)
+
         return True
 
-    def onAboutToRun(self, appName: str, folder: QDir, executable: str):
+    def getSetting(self, key: str):
+        return self.organizer.pluginSetting(self.name(), key)
+
+    def setSetting(self, key: str, value):
+        self.organizer.setPluginSetting(self.name(), key, value)
+
+    def onUserInterfaceInitialized(self, window: QMainWindow):
+        self.updateModLoadOrder()
+        for toolbar in window.findChildren(QToolBar):
+            if actionSettings := next(
+                filter(lambda a: a.objectName() == "actionSettings", toolbar.actions()),
+                None,
+            ):
+                action = QAction(
+                    SETTINGS_ICON,
+                    "Darktide Settings",
+                    actionSettings.parent(),
+                )
+                action.triggered.connect(self.onCustomSettingsOpened)
+                toolbar.insertAction(actionSettings, action)
+                break
+
+    def onCustomSettingsOpened(self, checked: bool):
+        DarktideSettingsDialog(self).exec()
+
+    def onAboutToRun(self, appPath: str, workingDirectory: QDir, arguments: str):
         self.updateModLoadOrder()
         return True
 
     def onModMoved(self, mod: str, oldPriority: int, newPriority: int):
         self.updateModLoadOrder()
 
+    def onModInstalled(self, mod: mobase.IModInterface):
+        self.updateModLoadOrder()
+
+    def onModRemoved(self, mod: str):
+        self.updateModLoadOrder()
+
     def onModStateChanged(self, changes: dict[str, mobase.ModState]):
         self.updateModLoadOrder()
 
     def updateModLoadOrder(self):
-        modDir = self.dataDirectory()
-        modListPath = Path(modDir.absoluteFilePath("mod_load_order.txt"))
+        modList = self.organizer.modList()
 
         @dataclass
         class Mod:
-            Name: str
-            Active: str
             Order: int
-            IsSeparator: bool = False
+            Name: str
+            Enabled: bool
 
-        mods: list[Mod] = []
+        # get mo2 mods
+        mods = {
+            name: Mod(
+                modList.priority(mod),
+                name,
+                modList.state(mod) & mobase.ModState.ACTIVE,
+            )
+            for mod in modList.allModsByProfilePriority()
+            if (name := self.getModFolderName(mod))
+        }
 
-        if modListPath.exists():
-            with modListPath.open() as f:
-                # read the mod list from mod_load_order.txt
-                for i, line in enumerate(f.read().splitlines()):
-                    if line := line.strip():
-                        if line.startswith("--"):
-                            mods.append(Mod(line[2:], False, i))
-                        else:
-                            mods.append(Mod(line, True, i))
-
-        modsIndex = {mod.Name.strip(): mod for mod in mods}
-        maxOrder = len(mods) and mods[-1].Order or 0
-
-        # apply enabled/disabled mod organizer mods
-        organizerMods = self.organizer.modList().allModsByProfilePriority()
-        organizerModsSet = set(self.getModFolderName(mod) for mod in organizerMods)
-        for mod in organizerMods:
-            isSeparator = False
-
-            if modInfo := self.organizer.modList().getMod(mod):
-                isSeparator = modInfo.isSeparator()
-
-            isActive = self.organizer.modList().state(mod) & mobase.ModState.ACTIVE
-            priority = self.organizer.modList().priority(mod)
-            folderName = (
-                mod
-                if isSeparator
-                else (
-                    self.getModFolderName(mod)
-                    or f"YOU SHOULD NEVER SEE THIS (TURN BACK NOW BEFORE ITS TOO LATE) (Culprit: {mod})"
-                )
+        # optionally add unmanaged mods
+        if self.getSetting("combine_with_unmanaged_mods"):
+            modsDir = self.dataDirectory()
+            extraList = Path(modsDir.absolutePath()) / "mod_load_order.txt"
+            extraPriority = len(mods) * (
+                -1 if self.getSetting("load_unmanaged_mods_first") else 1
             )
 
-            if folderName not in modsIndex:
-                mods.append(Mod(folderName, isActive, maxOrder + priority))
-                modsIndex[folderName] = mods[-1]
-            modsIndex[folderName].Active = isActive
-            modsIndex[folderName].Order = maxOrder + priority
-            modsIndex[folderName].IsSeparator = isSeparator
+            if extraList.exists():
+                with extraList.open() as f:
+                    for i, name in enumerate(f.read().splitlines()):
+                        if name := name.strip():
+                            if (
+                                not name.startswith("--")
+                                and name not in mods
+                                and modsDir.exists(f"{name}/{name}.mod")
+                            ):
+                                mods[name] = Mod(extraPriority + i, name, True)
 
-        with modListPath.open("w") as f:
-            for mod in sorted(mods, key=lambda x: x.Order):
-                if mod.IsSeparator:
-                    # f.write(f"----- {mod.Name} -----\n")
-                    continue
-
-                if (
-                    mod.Name in organizerModsSet
-                    and not mod.Active
-                    and not Path(modDir.absoluteFilePath(mod.Name)).exists()
-                ):
-                    # completely remove line if it was likely added by us aswell
-                    continue
-
-                if mod.Active:
+        # generate new mod list
+        newlist = Path(self.organizer.overwritePath()) / "mod_load_order.txt"
+        with newlist.open("w") as f:
+            for mod in sorted(mods.values(), key=lambda m: m.Order):
+                if mod.Enabled:
                     f.write(f"{mod.Name}\n")
                 else:
                     f.write(f"--{mod.Name}\n")
 
     def getModFolderName(self, mod: str):
-        if not (modInfo := self.organizer.modList().getMod(mod)):
+        if not (info := self.organizer.modList().getMod(mod)):
             return
+        if info.isSeparator():
+            return
+        if info.nexusId() in {8, 19}:
+            return  # Darktide Mod Framework/Loader is loaded automatically
 
-        folderName = None
+        fileTree = info.fileTree()
+        folderName: str = None
 
-        def walk(name: str, entry: mobase.FileTreeEntry):
-            if entry.isDir():
+        def walkTree(name: str, entry: mobase.FileTreeEntry):
+            if not entry.isDir():
+                return mobase.IFileTree.WalkReturn.CONTINUE
+
+            name = entry.name()
+            if fileTree.find(f"{name}/{name}.mod", mobase.FileTreeEntry.FILE):
                 nonlocal folderName
-                folderName = entry.name()
+                folderName = name
+                return mobase.IFileTree.WalkReturn.STOP
 
-                if modInfo.fileTree().find(
-                    f"{folderName}/{folderName}.mod", mobase.FileTreeEntry.FILE
-                ):
-                    return mobase.IFileTree.WalkReturn.STOP
-            return mobase.IFileTree.WalkReturn.CONTINUE
+        fileTree.walk(walkTree)
 
-        modInfo.fileTree().walk(walk)
+        if not folderName:
+            logging.error(f"Could not get mod folder name for: '{mod}'")
 
         return folderName
+
+
+class DarktideSettingsDialog(QDialog):
+    def __init__(self, game: Warhammer40000DarktideGame):
+        super().__init__()
+        self.game = game
+        self.setWindowTitle("Darktide Settings")
+        self.setWindowIcon(SETTINGS_ICON)
+        self.initWidgets()
+        self.finished.connect(self.onFinished)
+
+    def initWidgets(self):
+        self.checkboxes: dict[str, QCheckBox] = {}
+        self.initial: dict[str, bool] = {}
+        layout = QVBoxLayout(self)
+
+        for setting in self.game.settings():
+            value = self.game.getSetting(setting.key)
+            self.initial[setting.key] = value
+
+            rowWidget = QWidget()
+            row = QHBoxLayout(rowWidget)
+            row.setAlignment(Qt.AlignmentFlag.AlignTop)
+            layout.addWidget(rowWidget)
+
+            labels = QVBoxLayout()
+            labels.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+            key = QLabel(setting.key)
+            key.setStyleSheet(
+                f"font-size: {key.font().pointSizeF() + 2}pt; font-weight: bold;"
+            )
+            labels.addWidget(key)
+
+            desc = QLabel(setting.description)
+            desc.setWordWrap(True)
+            desc.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+            labels.addWidget(desc)
+
+            row.addLayout(labels, stretch=1)
+
+            checkbox = QCheckBox()
+            checkbox.setChecked(value)
+            checkbox.checkStateChanged.connect(
+                partial(self.onSettingChanged, key=setting.key)
+            )
+            self.checkboxes[setting.key] = checkbox
+            row.addWidget(checkbox)
+
+        self.updateSettingCoherency()
+
+    def updateSettingCoherency(self):
+        self.checkboxes["load_unmanaged_mods_first"].setEnabled(
+            self.checkboxes["combine_with_unmanaged_mods"].isChecked()
+        )
+
+    def onSettingChanged(self, state: Qt.CheckState, key: str):
+        self.updateSettingCoherency()
+
+    def onFinished(self, result: int):
+        update = False
+        for k, v0 in self.initial.items():
+            if v0 != (v := self.checkboxes[k].isChecked()):
+                update = True
+                self.game.setSetting(k, v)
+        if update:
+            self.game.updateModLoadOrder()
