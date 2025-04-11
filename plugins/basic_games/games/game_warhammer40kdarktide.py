@@ -38,7 +38,7 @@ SETTINGS_ICON = QIcon(
 class Warhammer40000DarktideGame(BasicGame):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.2"
+    Version = "1.0.3"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -142,13 +142,14 @@ class Warhammer40000DarktideGame(BasicGame):
         if self.getSetting("combine_with_unmanaged_mods"):
             modsDir = self.dataDirectory()
             extraList = Path(modsDir.absolutePath()) / "mod_load_order.txt"
-            extraPriority = len(mods) * (
-                -1 if self.getSetting("load_unmanaged_mods_first") else 1
-            )
 
             if extraList.exists():
                 with extraList.open() as f:
-                    for i, name in enumerate(f.read().splitlines()):
+                    lines = f.read().splitlines()
+                    extraPriority = (len(mods) + len(lines)) * (
+                        -1 if self.getSetting("load_unmanaged_mods_first") else 1
+                    )
+                    for i, name in enumerate(lines):
                         if name := name.strip():
                             if (
                                 not name.startswith("--")
