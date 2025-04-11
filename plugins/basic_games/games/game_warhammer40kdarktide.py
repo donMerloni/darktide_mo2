@@ -4,11 +4,13 @@ import zlib
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Dict
 
 import mobase
-from PyQt6.QtCore import QDir, Qt
-from PyQt6.QtGui import QAction, QIcon, QPixmap
-from PyQt6.QtWidgets import (
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtWidgets import (
+    QAction,
     QCheckBox,
     QDialog,
     QHBoxLayout,
@@ -35,10 +37,27 @@ SETTINGS_ICON = QIcon(
 )
 
 
+# PluginSetting.key throws TypeError: No Python class registered for C++ class class QString
+SETTINGS = [
+    (
+        "combine_with_unmanaged_mods",
+        "Include unmanaged mods from an existing mod_load_order.txt alongside those managed by Mod Organizer 2.\n\n"
+        "If a mod appears in both places, MO2 will always take priority—deciding which version is used and whether the mod is enabled.",
+        False,
+    ),
+    (
+        "load_unmanaged_mods_first",
+        "When combining with unmanaged mods, list them at the top of mod_load_order.txt so they are loaded first.\n\n"
+        "Disabling this will list them at the bottom, giving MO2-managed mods higher load priority.",
+        False,
+    ),
+]
+
+
 class Warhammer40000DarktideGame(BasicGame):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.3"
+    Version = "1.0.3b"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -48,20 +67,7 @@ class Warhammer40000DarktideGame(BasicGame):
     GameDataPath = "mods"
 
     def settings(self):
-        return [
-            mobase.PluginSetting(
-                "combine_with_unmanaged_mods",
-                "Include unmanaged mods from an existing mod_load_order.txt alongside those managed by Mod Organizer 2.\n\n"
-                "If a mod appears in both places, MO2 will always take priority—deciding which version is used and whether the mod is enabled.",
-                False,
-            ),
-            mobase.PluginSetting(
-                "load_unmanaged_mods_first",
-                "When combining with unmanaged mods, list them at the top of mod_load_order.txt so they are loaded first.\n\n"
-                "Disabling this will list them at the bottom, giving MO2-managed mods higher load priority.",
-                False,
-            ),
-        ]
+        return [mobase.PluginSetting(*s) for s in SETTINGS]
 
     def init(self, organizer: mobase.IOrganizer):
         super().init(organizer)
@@ -102,7 +108,7 @@ class Warhammer40000DarktideGame(BasicGame):
     def onCustomSettingsOpened(self, checked: bool):
         DarktideSettingsDialog(self).exec()
 
-    def onAboutToRun(self, appPath: str, workingDirectory: QDir, arguments: str):
+    def onAboutToRun(self, appPath: str):
         self.updateModLoadOrder()
         return True
 
@@ -115,7 +121,7 @@ class Warhammer40000DarktideGame(BasicGame):
     def onModRemoved(self, mod: str):
         self.updateModLoadOrder()
 
-    def onModStateChanged(self, changes: dict[str, mobase.ModState]):
+    def onModStateChanged(self, changes: Dict[str, mobase.ModState]):
         self.updateModLoadOrder()
 
     def updateModLoadOrder(self):
@@ -206,13 +212,13 @@ class DarktideSettingsDialog(QDialog):
         self.finished.connect(self.onFinished)
 
     def initWidgets(self):
-        self.checkboxes: dict[str, QCheckBox] = {}
-        self.initial: dict[str, bool] = {}
+        self.checkboxes: Dict[str, QCheckBox] = {}
+        self.initial: Dict[str, bool] = {}
         layout = QVBoxLayout(self)
 
-        for setting in self.game.settings():
-            value = self.game.getSetting(setting.key)
-            self.initial[setting.key] = value
+        for settingKey, settingDesc, _ in SETTINGS:
+            value = self.game.getSetting(settingKey)
+            self.initial[settingKey] = value
 
             rowWidget = QWidget()
             row = QHBoxLayout(rowWidget)
@@ -222,13 +228,13 @@ class DarktideSettingsDialog(QDialog):
             labels = QVBoxLayout()
             labels.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-            key = QLabel(setting.key)
+            key = QLabel(settingKey)
             key.setStyleSheet(
                 f"font-size: {key.font().pointSizeF() + 2}pt; font-weight: bold;"
             )
             labels.addWidget(key)
 
-            desc = QLabel(setting.description)
+            desc = QLabel(settingDesc)
             desc.setWordWrap(True)
             desc.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
             labels.addWidget(desc)
@@ -237,10 +243,8 @@ class DarktideSettingsDialog(QDialog):
 
             checkbox = QCheckBox()
             checkbox.setChecked(value)
-            checkbox.checkStateChanged.connect(
-                partial(self.onSettingChanged, key=setting.key)
-            )
-            self.checkboxes[setting.key] = checkbox
+            checkbox.toggled.connect(self.onSettingChanged)
+            self.checkboxes[settingKey] = checkbox
             row.addWidget(checkbox)
 
         self.updateSettingCoherency()
@@ -250,7 +254,7 @@ class DarktideSettingsDialog(QDialog):
             self.checkboxes["combine_with_unmanaged_mods"].isChecked()
         )
 
-    def onSettingChanged(self, state: Qt.CheckState, key: str):
+    def onSettingChanged(self, value: bool):
         self.updateSettingCoherency()
 
     def onFinished(self, result: int):
