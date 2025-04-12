@@ -57,7 +57,7 @@ SETTINGS = [
 class Warhammer40000DarktideGame(BasicGame):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.3b"
+    Version = "1.0.3c"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -193,6 +193,8 @@ class Warhammer40000DarktideGame(BasicGame):
                 nonlocal folderName
                 folderName = name
                 return mobase.IFileTree.WalkReturn.STOP
+
+            return mobase.IFileTree.WalkReturn.CONTINUE
 
         fileTree.walk(walkTree)
 
