@@ -44,13 +44,13 @@ def encode_xpm(img: PIL.Image.Image, charset=None, quantize=256):
     ]
     palette = sorted(set(colors), key=lambda x: x if x else (-1,))
     pixelWidth, pixelCapacity = next(
-        (n, w)
-        for n in range(1, 12)
-        if (w := get_combinations_count(len(charset), n)) >= len(palette)
+        (w, c)
+        for w in range(1, 12)
+        if (c := get_combinations_count(len(charset), w)) >= len(palette)
     )
     color2symbol = {}
 
-    # TODO: if our pixelCapacity is much higher than our palette size we may want to quantize down to the previous pixelWidth, but PIL only supports quantizing to 256 colors
+    # TODO: if our pixelWidth would give as a MUCH higher color capacity than our palette size (the amount of colors we actually use), we may want to quantize the image down so we can represent it with a smaller pixelWidth
     # print(f"\tPallete Efficiency: {len(palette)/pixelCapacity*100: 6.2f} %")
 
     with StringIO() as f:
@@ -87,22 +87,21 @@ def main():
                     print(path.stem)
 
                     if False:
+                        # brute force to find best charset for compression????
                         charset = CHARSET
                         xpm = ""
-                        xpm_size = sys.maxsize
-                        xpm_size_worst = -sys.maxsize
+                        bestZipSize = sys.maxsize
+                        worstZipSize = -sys.maxsize
                         for _ in range(1000):
                             new = encoder(img, charset=charset)
-                            new_size = len(
-                                base64.b85encode(zlib.compress(new.encode()))
-                            )
-                            if new_size > xpm_size_worst:
-                                xpm_size_worst = new_size
-                                print(f"\t\t>{xpm_size_worst}")
-                            if new_size < xpm_size:
+                            zipSize = len(base64.b85encode(zlib.compress(new.encode())))
+                            if zipSize > worstZipSize:
+                                worstZipSize = zipSize
+                                print(f"\t\t>{worstZipSize}")
+                            if zipSize < bestZipSize:
                                 xpm = new
-                                xpm_size = new_size
-                                print(f"\t{xpm_size}<")
+                                bestZipSize = zipSize
+                                print(f"\t{bestZipSize}<")
                             charset = CHARSET[:]
                             random.shuffle(charset)
                     else:
