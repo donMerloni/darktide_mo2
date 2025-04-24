@@ -35,12 +35,15 @@ def open_image(path: Path):
 
 
 def encode_xpm(img: PIL.Image.Image, charset=None, quantize=256):
+    emptyPixels = {i: a == 0 for i, (*_, a) in enumerate(img.convert("RGBA").getdata())}
+
     if quantize:
         img = img.quantize(quantize)
     charset = charset or CHARSET
 
     colors = [
-        False if a == 0 else (r, g, b) for r, g, b, a in img.convert("RGBA").getdata()
+        False if emptyPixels[i] else rgb
+        for i, rgb in enumerate(img.convert("RGB").getdata())
     ]
     palette = sorted(set(colors), key=lambda x: x if x else (-1,))
     pixelWidth, pixelCapacity = next(
