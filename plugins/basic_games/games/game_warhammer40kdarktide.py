@@ -31,7 +31,7 @@ class Mod:
 class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.4"
+    Version = "1.0.5"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -160,7 +160,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def getMods(self):
         modList = self._organizer.modList()
         return {
-            info.nexusId(): Mod(
+            info.nexusId() or info.name(): Mod(
                 modList.priority(m),
                 modList.state(m) & mobase.ModState.ACTIVE,
                 info,
