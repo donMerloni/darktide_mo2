@@ -152,6 +152,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                     if not (m := self.applyDML(modList.getMod(mod.Name))):
                         return False
                     mappings = m
+                break
 
         self.activeMappings = [*mappings, self.getModListMapping()]
 
