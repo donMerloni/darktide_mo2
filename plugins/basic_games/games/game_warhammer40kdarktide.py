@@ -55,7 +55,7 @@ SETTINGS = [
 class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.6"
+    Version = "1.0.7"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -238,13 +238,13 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
     def installDML(self, mod: mobase.IModInterface):
         assert mod.nexusId() == NEXUS_DML
-        import shutil
+        import os, shutil
 
         modDir = Path(mod.absolutePath())
         customDir = self.getCustomMappingDir()
         shutil.rmtree(customDir, ignore_errors=True)
 
-        # just move DML out of the mods directory, we will map it manually
+        # move DML out of the mod directory, we will map it manually
         def walkTree(name: str, entry: mobase.FileTreeEntry):
             path = entry.path()
             src = modDir / path
@@ -253,6 +253,12 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
             return mobase.IFileTree.WalkReturn.CONTINUE
 
         mod.fileTree().walk(walkTree)
+
+        # move contents of mods/ directory back so it can be properly overridden by other mods, e.g. "Auto Mod Loading and Ordering"
+        customMods = customDir / "mods"
+        for item in os.listdir(customMods):
+            shutil.move(customMods / item, modDir / item)
+        os.rmdir(customMods)  # not needed but I'm paranoid
 
         qInfo(f"Installed Darktide Mod Loader to: '{customDir}'")
 
