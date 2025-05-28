@@ -5,13 +5,22 @@ from typing import Dict, List
 import mobase
 
 try:
-    from PyQt6.QtCore import qCritical, qInfo, qVersion
+    from PyQt6.QtCore import qCritical as _qCritical, qInfo as _qInfo, qVersion
     from PyQt6.QtGui import QAction, QIcon, QPixmap
     from PyQt6.QtWidgets import QCheckBox, QDialog, QMainWindow, QPushButton, QToolBar, QVBoxLayout # fmt:skip
 except:
-    from PyQt5.QtCore import qCritical, qInfo, qVersion
+    from PyQt5.QtCore import qCritical as _qCritical, qInfo as _qInfo, qVersion
     from PyQt5.QtGui import QIcon, QPixmap
     from PyQt5.QtWidgets import QAction, QCheckBox, QDialog, QMainWindow, QPushButton, QToolBar, QVBoxLayout # fmt:skip
+
+
+def qCritical(msg: str):
+    _qCritical(msg.encode("utf-8"))
+
+
+def qInfo(msg: str):
+    _qInfo(msg.encode("utf-8"))
+
 
 from ..basic_game import BasicGame
 
@@ -55,7 +64,7 @@ SETTINGS = [
 class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.7"
+    Version = "1.0.8"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -214,7 +223,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
             return []
 
         modsDir = self.dataDirectory()
-        with listFile.open() as f:
+        with listFile.open(encoding="utf-8") as f:
             return [
                 name
                 for line in f.read().splitlines()
@@ -325,7 +334,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                     modsDict[name] = Mod(extraPriority + i, True, name)
 
         # generate new mod list
-        with open(self.getModListMappingRaw()[0], "w") as f:
+        with open(self.getModListMappingRaw()[0], mode="w", encoding="utf-8") as f:
             for mod in sorted(modsDict.values(), key=lambda m: m.Priority):
                 if mod.FolderName in IGNORE:
                     continue
