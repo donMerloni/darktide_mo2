@@ -25,6 +25,10 @@ def qInfo(msg: str):
 from ..basic_game import BasicGame
 
 
+class PluginError(Exception):
+    pass
+
+
 @dataclass
 class Mod:
     Priority: int
@@ -64,7 +68,7 @@ SETTINGS = [
 class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.8"
+    Version = "1.0.9"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
@@ -81,7 +85,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         BasicGame.init(self, organizer)
         # managedGame() doesn't exist yet...
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
-        self.activeMappings = None
+        self.customMappings = None
         return True
 
     def debugInfo(self):
@@ -146,7 +150,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def onCustomSettingsOpened(self, checked: bool):
         DarktideSettingsDialog(self).exec()
 
-    def onAboutToRun(self, appPath: str):
+    def generateCustomMappings(self):
         if self.getSetting("debug_info_on_run"):
             self.debugInfo()
 
@@ -159,16 +163,23 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                 if mod.Active:
                     modList = self._organizer.modList()
                     if not (m := self.applyDML(modList.getMod(mod.Name))):
-                        return False
+                        return None
                     mappings = m
                 break
 
-        self.activeMappings = [*mappings, self.getModListMapping()]
+        self.customMappings = [*mappings, self.getModListMapping()]
 
         # update mod list
         self.updateModLoadOrder(mods)
 
-        return True
+        return self.customMappings
+
+    def onAboutToRun(self, appPath: str):
+        # this only happens in "interactive" mode (not when running shortcuts e.g.)
+        try:
+            return bool(self.generateCustomMappings())
+        except PluginError as err:
+            qCritical(str(err))
 
     def onModInstalled(self, mod: mobase.IModInterface):
         self.autodetectMod(mod)
@@ -176,7 +187,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
             self.installDML(mod)
 
     def mappings(self):
-        return self.activeMappings or []
+        return self.customMappings or self.generateCustomMappings()
 
     def settings(self):
         return [mobase.PluginSetting(*s) for s in SETTINGS]
@@ -253,7 +264,9 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         customDir = self.getCustomMappingDir()
         shutil.rmtree(customDir, ignore_errors=True)
 
-        # move DML out of the mod directory, we will map it manually
+        ## TODO: this whole "manual mapping of parts of a mod" thing could be made into a helper class or whatever
+
+        # move the contents of DML into a custom folder, we will map them manually
         def walkTree(name: str, entry: mobase.FileTreeEntry):
             path = entry.path()
             src = modDir / path
@@ -263,7 +276,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
         mod.fileTree().walk(walkTree)
 
-        # move contents of mods/ directory back so it can be properly overridden by other mods, e.g. "Auto Mod Loading and Ordering"
+        # unwrap the mods/ directory and move contents back, so they can naturally get overridden by other mods, e.g. "Auto Mod Loading and Ordering"
         customMods = customDir / "mods"
         for item in os.listdir(customMods):
             shutil.move(customMods / item, modDir / item)
@@ -278,10 +291,9 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         gameDir = Path(self.gameDirectory().absolutePath())
         customDir = self.getCustomMappingDir()
         if not customDir.exists():
-            qCritical(
-                f"Tried to apply Darktide Mod Loader but missing directory: '{customDir}'"
+            raise PluginError(
+                f"Tried to generate custom mappings for Darktide Mod Loader but missing directory: '{customDir}'. Try reinstalling Darktide Mod Loader"
             )
-            return
 
         BUNDLE_DB = "bundle/bundle_database.data"
         gameBundle = gameDir / BUNDLE_DB
@@ -292,15 +304,22 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
             customBundle.is_file()
             and customBundleBak.is_file()
             and filecmp.cmp(gameBundle, customBundleBak)
+            and not filecmp.cmp(gameBundle, customBundle)
         )
 
         if not foundPatchedBundle:
             import shutil, subprocess
 
+            patcher = customDir / "tools/dtkit-patch.exe"
+            if not patcher.is_file():
+                raise PluginError(
+                    f"Tried to toggle mods but missing patcher: '{patcher}'. Try reinstalling Darktide Mod Loader"
+                )
+
             # patch a fresh bundle database
             shutil.copy(gameBundle, customBundle)
             patcher = subprocess.run(
-                [customDir / "tools/dtkit-patch.exe", "--patch", customBundle.parent],
+                [patcher, "--patch", customBundle.parent],
                 capture_output=True,
                 check=True,
                 creationflags=subprocess.CREATE_NO_WINDOW,
@@ -366,7 +385,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         fileTree.walk(walkTree)
 
         if not folderName:
-            qCritical(f"Could not find mod folder name for: '{mod.name()}'")
+            raise PluginError(f"Could not find mod folder name for: '{mod.name()}'")
 
         return folderName
 
