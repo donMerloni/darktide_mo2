@@ -340,12 +340,17 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
     def updateModLoadOrder(self, mods: List[Mod]):
         # get mo2 mods
-        modsDict = {mod.FolderName: mod for mod in mods if mod.FolderName}
+        modsDict: Dict[str, Mod] = {}
+        for mod in mods:
+            existing = modsDict.get(mod.FolderName)
+            # make sure active mods dont get deactivated by other mods changing the same folder
+            if mod.FolderName and (not existing or (not existing.Active and mod.Active)):
+                modsDict[mod.FolderName] = mod
 
         # optionally add unmanaged mods
         if self.getSetting("combine_with_unmanaged_mods"):
             extraMods = self.getModsUnmanaged()
-            extraPriority = (len(modsDict) + len(extraMods)) * (
+            extraPriority = (len(mods) + len(extraMods)) * (
                 -1 if self.getSetting("load_unmanaged_mods_first") else 1
             )
             for i, name in enumerate(extraMods):
@@ -385,7 +390,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         fileTree.walk(walkTree)
 
         if not folderName:
-            raise PluginError(f"Could not find mod folder name for: '{mod.name()}'")
+            qCritical(f"Could not find mod folder name for: '{mod.name()}'")
 
         return folderName
 
