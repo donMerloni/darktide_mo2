@@ -9,17 +9,24 @@ from typing import Dict, List
 import mobase
 
 try:
-    from PyQt6.QtCore import qCritical as _qCritical, qInfo as _qInfo, qVersion
+    from PyQt6.QtCore import QTimer, qCritical as _qCritical, qInfo as _qInfo, qVersion
     from PyQt6.QtGui import QAction, QIcon, QPixmap
-    from PyQt6.QtWidgets import QCheckBox, QDialog, QMainWindow, QPushButton, QToolBar, QVBoxLayout # fmt:skip
+    from PyQt6.QtWidgets import QCheckBox, QDialog, QMainWindow, QMessageBox, QPushButton, QToolBar, QVBoxLayout # fmt:skip
 except:
-    from PyQt5.QtCore import qCritical as _qCritical, qInfo as _qInfo, qVersion
+    from PyQt5.QtCore import QTimer, qCritical as _qCritical, qInfo as _qInfo, qVersion
     from PyQt5.QtGui import QIcon, QPixmap
-    from PyQt5.QtWidgets import QAction, QCheckBox, QDialog, QMainWindow, QPushButton, QToolBar, QVBoxLayout # fmt:skip
+    from PyQt5.QtWidgets import QAction, QCheckBox, QDialog, QMainWindow, QMessageBox, QPushButton, QToolBar, QVBoxLayout # fmt:skip
 
 
-def qCritical(msg: str):
+def qCritical(msg: str, is_interactive=True):
     _qCritical(msg.encode("utf-8"))
+    if not is_interactive:
+        QTimer.singleShot(
+            0,
+            lambda: QMessageBox.critical(
+                None, "Mod Organizer 2 Darktide Support Plugin", msg
+            ),
+        )
 
 
 def qInfo(msg: str):
@@ -88,6 +95,8 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def init(self, organizer: mobase.IOrganizer):
         BasicGame.init(self, organizer)
 
+        self.is_interactive = False
+
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
         organizer.modList().onModInstalled(self.onModInstalled)
@@ -114,6 +123,8 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         qCritical("Debug Info:\n" + "\n".join(f"{k}={str(v)}" for k, v in stuff))
 
     def onUserInterfaceInitialized(self, window: QMainWindow):
+        self.is_interactive = True
+
         # MO2 always calls onUserInterfaceInitialized for every plugin, even when not active
         game = self._organizer.managedGame()
         if not (game == self or game.gameShortName() == self.gameShortName()):
@@ -183,7 +194,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
             return True
         except PluginError as err:
-            qCritical(str(err))
+            qCritical(str(err), self.is_interactive)
             return False
 
     def onModInstalled(self, mod: mobase.IModInterface):
