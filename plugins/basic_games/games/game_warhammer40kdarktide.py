@@ -10,6 +10,9 @@ from typing import Dict, List
 
 import mobase
 
+
+from ..basic_game import BasicGame
+
 try:
     from PyQt6.QtCore import QTimer, qCritical as _qCritical, qInfo as _qInfo, qVersion
     from PyQt6.QtGui import QAction, QIcon, QPixmap
@@ -31,9 +34,6 @@ def qCritical(msg: str, popup=False):
 
 def qInfo(msg: str):
     _qInfo(msg.encode("utf-8"))
-
-
-from ..basic_game import BasicGame
 
 
 class PluginError(Exception):
@@ -69,8 +69,8 @@ SETTINGS = [
     ),
     (
         "show_popups",
-        "When MO2 runs without GUI, show a pop-up window for certain log messages deemed important (mostly errors).\n"
-        "If disabled, they only show up in the GUI and/or MO2's mo_interface.log",
+        "When MO2 runs without GUI, show a pop-up window for messages deemed important (mostly errors).\n"
+        "If disabled, they only show up in the GUI and/or mo_interface.log",
         True,
     ),
     (
@@ -267,7 +267,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def setSetting(self, key: str, value):
         self._organizer.setPluginSetting(self.name(), key, value)
 
-    def getCustomMappingDir(self):
+    def customMappingsDirectory(self):
         return Path(self._organizer.basePath()) / "custom_mappings/Darktide Mod Loader"
 
     def getModListTxtMappingRaw(self):
@@ -331,7 +331,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         assert mod.nexusId() == NEXUS_DML
 
         modDir = Path(mod.absolutePath())
-        customDir = self.getCustomMappingDir()
+        customDir = self.customMappingsDirectory()
         shutil.rmtree(customDir, ignore_errors=True)
 
         ## TODO: this whole "manual mapping of parts of a mod" thing could be made into a helper class or whatever
@@ -358,7 +358,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         assert mod.nexusId() == NEXUS_DML
 
         gameDir = Path(self.gameDirectory().absolutePath())
-        customDir = self.getCustomMappingDir()
+        customDir = self.customMappingsDirectory()
         if not customDir.exists():
             raise PluginError(
                 f"Tried to apply DML but missing directory: '{customDir}'. Try reinstalling Darktide Mod Loader"
