@@ -340,15 +340,10 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         )
 
         if not foundPatchedBundle:
-
-            def _locateExe(path: Path):
-                variations = (Path(str(path) + ".exe"), Path(path))
-                return next(filter(Path.is_file, variations), None)
-
-            patcherName = customDir / "tools/dtkit-patch"
-            if not (patcher := _locateExe(patcherName)):
+            patcher = customDir / "tools/dtkit-patch.exe"
+            if not patcher.is_file():
                 raise PluginError(
-                    f"Tried to patch '{customBundle}' with DML but missing patcher: '{patcherName}'. Try reinstalling Darktide Mod Loader"
+                    f"Tried to patch '{customBundle}' with DML but missing patcher: '{patcher}'. Try reinstalling Darktide Mod Loader"
                 )
 
             # patch a fresh bundle database
