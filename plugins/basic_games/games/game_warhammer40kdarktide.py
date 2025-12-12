@@ -1,5 +1,6 @@
 import filecmp
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -99,6 +100,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
+        organizer.onFinishedRun(self.onFinishedRun)
         organizer.modList().onModInstalled(self.onModInstalled)
 
         return True
@@ -196,6 +198,20 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         except PluginError as err:
             qCritical(str(err), self.is_interactive)
             return False
+
+    def onFinishedRun(self, appPath: str, exitCode: int):
+        logPath = Path("%APPDATA%/Fatshark/Darktide/console_logs")
+        logDir = Path(os.path.expandvars(logPath))
+        if latestLog := max(logDir.glob("*.log"), key=os.path.getmtime, default=None):
+            with latestLog.open("r") as f:
+                if errors := re.findall(
+                    r"<<Lua Error>>(.+?)<</Lua Error>>", f.read(), re.DOTALL
+                ):
+                    qCritical(
+                        f"Recent Lua Errors in\n{logPath}\\\n{latestLog.name}\n"
+                        + "\n".join((f"#{i}: {s}" for i, s in enumerate(errors, 1))),
+                        self.is_interactive,
+                    )
 
     def onModInstalled(self, mod: mobase.IModInterface):
         self.autoDetectMod(mod)
