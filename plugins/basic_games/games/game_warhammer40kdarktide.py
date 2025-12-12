@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -19,15 +20,13 @@ except:
     from PyQt5.QtWidgets import QAction, QCheckBox, QDialog, QMainWindow, QMessageBox, QPushButton, QToolBar, QVBoxLayout # fmt:skip
 
 
-def qCritical(msg: str, is_interactive=True):
+def qCritical(msg: str, popup=False):
     _qCritical(msg.encode("utf-8"))
-    if not is_interactive:
-        QTimer.singleShot(
-            0,
-            lambda: QMessageBox.critical(
-                None, "Mod Organizer 2 Darktide Support Plugin", msg
-            ),
+    if popup:
+        fn = lambda: QMessageBox.critical(
+            None, "Mod Organizer 2 Darktide Support Plugin", msg
         )
+        QTimer.singleShot(0, fn) if popup == "delayed" else fn()
 
 
 def qInfo(msg: str):
@@ -69,6 +68,18 @@ SETTINGS = [
         False,
     ),
     (
+        "show_popups",
+        "When MO2 runs without GUI, show a pop-up window for certain log messages deemed important (mostly errors).\n"
+        "If disabled, they only show up in the GUI and/or MO2's mo_interface.log",
+        True,
+    ),
+    (
+        "inspect_crash",
+        "When the game finishes with a non-zero exit code, log an error message.\n"
+        "Also searches for Lua Errors in the latest log file in %APPDATA%\\Fatshark\\Darktide\\console_logs",
+        True,
+    ),
+    (
         "debug_info_on_run",
         "Log helpful stuff when the program/game is about to run.\n"
         "If you encounter a bug, the log output might help fix it.",
@@ -88,6 +99,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     GameSteamId = 1361210
     GameBinary = "binaries/Darktide.exe"
     GameDataPath = "mods"
+    GameDocumentsDirectory = "%USERPROFILE%/AppData/Roaming/Fatshark/Darktide"
 
     def __init__(self):
         BasicGame.__init__(self)
@@ -96,7 +108,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def init(self, organizer: mobase.IOrganizer):
         BasicGame.init(self, organizer)
 
-        self.is_interactive = False
+        self.show_popups = self.getSetting("show_popups")
 
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
@@ -125,7 +137,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         qCritical("Debug Info:\n" + "\n".join(f"{k}={str(v)}" for k, v in stuff))
 
     def onUserInterfaceInitialized(self, window: QMainWindow):
-        self.is_interactive = True
+        self.show_popups = False
 
         # MO2 always calls onUserInterfaceInitialized for every plugin, even when not active
         game = self._organizer.managedGame()
@@ -196,22 +208,47 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
             return True
         except PluginError as err:
-            qCritical(str(err), self.is_interactive)
+            qCritical(str(err), popup=self.show_popups)
             return False
 
     def onFinishedRun(self, appPath: str, exitCode: int):
-        logPath = Path("%APPDATA%/Fatshark/Darktide/console_logs")
-        logDir = Path(os.path.expandvars(logPath))
-        if latestLog := max(logDir.glob("*.log"), key=os.path.getmtime, default=None):
-            with latestLog.open("r") as f:
-                if errors := re.findall(
-                    r"<<Lua Error>>(.+?)<</Lua Error>>", f.read(), re.DOTALL
-                ):
-                    qCritical(
-                        f"Recent Lua Errors in\n{logPath}\\\n{latestLog.name}\n"
-                        + "\n".join((f"#{i}: {s}" for i, s in enumerate(errors, 1))),
-                        self.is_interactive,
-                    )
+        STILL_ACTIVE = 259
+        OK_STATUS = {None, 0, STILL_ACTIVE}
+
+        if exitCode not in OK_STATUS and self.getSetting("inspect_crash"):
+            msg = [f"{Path(appPath).name} exited with code {exitCode}"]
+
+            logDir = Path(self.documentsDirectory().absoluteFilePath("console_logs"))
+            if latestLog := max(logDir.glob("*.log"), key=os.path.getmtime, default=None):
+                with latestLog.open("r") as f:
+                    if errors := re.findall(
+                        r"<<Lua Error>>(.+?)<</Lua Error>>",
+                        f.read(),
+                        re.DOTALL | re.IGNORECASE,
+                    ):
+
+                        def _timeAgo(seconds):
+                            for unit, name in [
+                                (60 * 60 * 24, "day"),
+                                (60 * 60, "hour"),
+                                (60, "minute"),
+                                (1, "second"),
+                            ]:
+                                if seconds >= unit:
+                                    n = int(seconds / unit)
+                                    return f"{n} {name}" + (" ago" if n == 1 else "s ago")
+                            return "now"
+
+                        seconds = (
+                            datetime.now(tz=timezone.utc).timestamp()
+                            - latestLog.stat().st_mtime
+                        )
+                        msg.append(
+                            f"\n\nRecent Lua Errors in\n{latestLog.name}\n    (modified {_timeAgo(seconds)})\n"
+                        )
+                        msg.extend(f"\n#{i}: {s}" for i, s in enumerate(errors, 1))
+
+            qCritical("".join(msg), popup=self.show_popups and "delayed")
 
     def onModInstalled(self, mod: mobase.IModInterface):
         self.autoDetectMod(mod)
