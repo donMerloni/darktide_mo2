@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, TypeAlias, Union
 
 import mobase
 
-from ..basic_game import BasicGame, BasicGameMappings
+from basic_games.basic_game import BasicGame, BasicGameMappings
 
 try:
     # fmt:off
@@ -62,6 +62,7 @@ class Mod:
     folder_name: str
     nexus_id: int = 0
     name: str = None
+    mod: mobase.IModInterface = None
 
 
 NEXUS_DMF = 8
@@ -131,6 +132,42 @@ SETTINGS_CHOICES = {
         ("Português - Brasil (Portuguese - Brazil)", "pt-br"),
     ]
 }
+
+
+class DarktideModInstaller(mobase.IPluginInstallerSimple):
+    def __init__(self):
+        mobase.IPluginInstallerSimple.__init__(self)
+
+    def init(self, organizer: mobase.IOrganizer):
+        return True
+
+    # fmt:off
+    def name(self): return "Darktide Mod Installer"
+    def author(self): return "Nyvrak"
+    def version(self): return mobase.VersionInfo("1.0.11")
+    def description(self): return "Installer for Darktide mods"
+    def priority(self): return 9001
+    def isArchiveSupported(self, tree): return True
+    def settings(self): return []
+    # fmt:on
+
+    def requirements(self):
+        return [
+            mobase.PluginRequirementFactory.gameDependency(
+                ["Warhammer 40,000: Darktide"]
+            ),
+            mobase.PluginRequirementFactory.pluginDependency(
+                ["Warhammer 40,000: Darktide Support Plugin"]
+            ),
+        ]
+
+    def install(self, name, tree, version, nexus_id):
+        new = tree.createOrphanTree("root_mod")
+        root = new.addDirectory("root")
+        qInfo(str(tree.detach()))
+        qInfo(str(tree.moveTo(root)))
+
+        return (mobase.InstallResult.NOT_ATTEMPTED, new, version, nexus_id)
 
 
 class BasedGame:
@@ -263,14 +300,16 @@ class BasedGame:
 class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper):
     Name = "Warhammer 40,000: Darktide Support Plugin"
     Author = "Nyvrak"
-    Version = "1.0.9"
+    Version = "1.0.11"
 
     GameName = "Warhammer 40,000: Darktide"
     GameShortName = "warhammer40kdarktide"
     GameNexusName = "warhammer40kdarktide"
     GameSteamId = 1361210
     GameBinary = "binaries/Darktide.exe"
-    GameDataPath = "mods"
+    GameDataPath = (
+        ".Darktide_Folder"  # "mods"  # dummy folder (we want to map everything manually)
+    )
 
     def GameDocumentsDirectory(self):
         paths = [
@@ -394,8 +433,8 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
     def onModInstalled(self, mod: mobase.IModInterface):
         self.identify_mod(mod)
-        if mod.nexusId() == NEXUS_DML:
-            self.install_dml(mod)
+        # if mod.nexusId() == NEXUS_DML:
+        #    self.install_dml(mod)
 
     def open_settings_dialog(self):
         (self.settings_dialog or DarktideSettingsDialog(self)).exec()
@@ -405,10 +444,46 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         mods = self.get_mods()
         mappings = []
 
-        # add our custom mappings for DML, if installed
-        if dml := next((m for m in mods if m.nexus_id == NEXUS_DML and m.active), None):
-            stuff = self.apply_dml(self._organizer.modList().getMod(dml.name))
-            mappings.extend(stuff)
+        game_dir = Path(self.gameDirectory().absolutePath())
+        for m in mods:
+            if not m.active:
+                continue
+
+            is_root_mod = m.nexus_id == NEXUS_DML
+
+            def _mappings(name: str, entry: mobase.FileTreeEntry):
+                path = entry.path()
+                src = Path(m.mod.absolutePath()) / path
+                if is_root_mod:
+                    dst = game_dir / path
+                else:
+                    dst = game_dir / "mods" / path
+                mappings.append(mobase.Mapping(str(src), str(dst), entry.isDir()))
+                return mobase.IFileTree.WalkReturn.CONTINUE
+
+            m.mod.fileTree().walk(_mappings)
+
+        # def _walk(name: str, entry: mobase.FileTreeEntry):
+        #     qInfo(f"name={name} entry={entry}")
+        #     return mobase.IFileTree.WalkReturn.CONTINUE
+
+        # tree.walk(_walk)
+
+        # for m in mo2Mods:
+        #     if not m.Active:
+        #         continue
+
+        #     tree = m.Mod.fileTree()
+        #     if tree.find(self.GameDataPath, type=mobase.FileTreeEntry.DIRECTORY):
+        #         tree.clear()
+
+        # modList.setActive(["Psych Ward"], False)
+        # self._organizer.refresh()
+
+        # # add our custom mappings for DML, if installed
+        # if dml := next((m for m in mods if m.nexus_id == NEXUS_DML and m.active), None):
+        #     stuff = self.apply_dml(self._organizer.modList().getMod(dml.name))
+        #     mappings.extend(stuff)
 
         # add mapping for mod_load_order.txt
         mappings.append(self.apply_mod_list(mods))
@@ -431,6 +506,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
                 self.get_mod_folder_name(mod),
                 mod.nexusId(),
                 name,
+                mod,
             )
             for name in modList.allModsByProfilePriority()
             if (mod := modList.getMod(name))
@@ -441,28 +517,39 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         if not mod_list.exists():
             return []
 
-        data = self.dataDirectory()
+        data = Path(self.gameDirectory().absolutePath())
         with mod_list.open("r", encoding="utf-8") as f:
             return [
                 name
                 for line in f.read().splitlines()
                 if (name := line.strip())
                 and not name.startswith("--")
-                and data.exists(f"{name}/{name}.mod")
+                and (data / f"mods/{name}/{name}.mod").is_file()
             ]
 
     def identify_mod(self, mod: mobase.IModInterface):
         if mod.nexusId():
             return
         tree = mod.fileTree()
+        name = mod.name()
 
-        if tree.find("binaries/mod_loader", mobase.FileTreeEntry.FileTypes.FILE):
-            qInfo(f"Auto-detected mod '{mod.name()}' as Darktide Mod Loader")
+        if tree.find(".is_root_mod"):
+            qInfo(f"Mod '{name}' detected as root mod (contains '.is_root_mod')")
+            mod.setPluginSetting(self.name(), "is_root_mod", True)
+            return
+
+        if tree.find("mods", mobase.FileTreeEntry.DIRECTORY):
+            qInfo(f"Mod '{name}' detected as root mod (contains 'mods/')")
+            mod.setPluginSetting(self.name(), "is_root_mod", True)
+            return
+
+        if tree.find("tools/dtkit-patch.exe", mobase.FileTreeEntry.FileTypes.FILE):
+            qInfo(f"Mod '{name}' detected as DML (contains 'tools/dtkit-patch.exe')")
             mod.setNexusID(NEXUS_DML)
             return
 
         if tree.find("dmf/dmf.mod", mobase.FileTreeEntry.FileTypes.FILE):
-            qInfo(f"Auto-detected mod '{mod.name()}' as Darktide Mod Framework")
+            qInfo(f"Mod '{name}' detected as DMF (contains 'dmf/dmf.mod')")
             mod.setNexusID(NEXUS_DMF)
             return
 
@@ -497,7 +584,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         ## FIXME: I wish I didn't need to do this... but same issue as settings()
         return (
             str(self._organizer.profilePath() / Path("mod_load_order.txt")),
-            self.dataDirectory().absoluteFilePath("mod_load_order.txt"),
+            self.gameDirectory().absoluteFilePath("mods/mod_load_order.txt"),
         )
 
     def apply_dml(self, mod: mobase.IModInterface):
@@ -659,6 +746,13 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             ("mod_load_order.txt", self.mod_list_mapping()),
             ("Mods", self.get_mods()),
             ("Unmanaged mods", self.get_unmanaged_mods()),
+            (
+                "Mappings",
+                [
+                    f"{m.source} -> {m.destination} ({'directory' if m.isDirectory else 'file'})"
+                    for m in self.mappings()
+                ],
+            ),
         ]
         qInfo("Debug Info: " + " ".join(f'{k} = "{v}";' for k, v in stuff))
 
@@ -675,8 +769,10 @@ class DarktideSettingsDialog(QDialog):
     def init_widgets(self):
         self.widgets: Dict[str, QWidget] = {}
         self.initial: Dict[str, bool] = {}
+
         layout = QVBoxLayout(self)
 
+        # style
         bg = self.palette().highlight().color()
         fg = self.palette().highlightedText().color()
         disabled = self.palette().color(
@@ -773,3 +869,7 @@ class DarktideSettingsDialog(QDialog):
             )
             if v0 != v:
                 self.game.set_setting(k, v)
+
+
+def createPlugins():
+    return [Warhammer40000DarktideGame(), DarktideModInstaller()]
