@@ -1,4 +1,5 @@
 import filecmp
+import hashlib
 import os
 import re
 import shutil
@@ -10,17 +11,27 @@ from typing import Dict, List
 
 import mobase
 
-
 from ..basic_game import BasicGame
 
 try:
-    from PyQt6.QtCore import QTimer, qCritical as _qCritical, qInfo as _qInfo, qVersion
-    from PyQt6.QtGui import QAction, QIcon, QPixmap
-    from PyQt6.QtWidgets import QCheckBox, QDialog, QMainWindow, QMessageBox, QPushButton, QToolBar, QVBoxLayout # fmt:skip
+    # fmt:off
+    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtCore import qCritical as _qCritical
+    from PyQt6.QtCore import qInfo as _qInfo
+    from PyQt6.QtCore import qVersion
+    from PyQt6.QtGui import QAction, QBrush, QIcon, QPalette, QPixmap
+    from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QMainWindow,
+                                 QMessageBox, QToolBar, QVBoxLayout, QWidget)
 except:
-    from PyQt5.QtCore import QTimer, qCritical as _qCritical, qInfo as _qInfo, qVersion
-    from PyQt5.QtGui import QIcon, QPixmap
-    from PyQt5.QtWidgets import QAction, QCheckBox, QDialog, QMainWindow, QMessageBox, QPushButton, QToolBar, QVBoxLayout # fmt:skip
+    # fmt:off
+    from PyQt5.QtCore import Qt, QTimer
+    from PyQt5.QtCore import qCritical as _qCritical
+    from PyQt5.QtCore import qInfo as _qInfo
+    from PyQt5.QtCore import qVersion
+    from PyQt5.QtGui import QBrush, QIcon, QPalette, QPixmap
+    from PyQt5.QtWidgets import (QAction, QCheckBox, QComboBox, QDialog,
+                                 QMainWindow, QMessageBox, QToolBar,
+                                 QVBoxLayout, QWidget)
 
 
 def qCritical(msg: str, popup=False):
@@ -80,12 +91,36 @@ SETTINGS = [
         True,
     ),
     (
-        "debug_info_on_run",
-        "Log helpful stuff when the program/game is about to run.\n"
-        "If you encounter a bug, the log output might help fix it.",
+        "override_language",
+        "Change the game's language by modifying a virtual copy of your user_settings.config\n"
+        'If "language_id" is modified elsewhere, e.g. binaries/mod_loader as documented in DMF, this will not work.\n'
+        "warning: While enabled, any changes the game makes to user_settings.config will be written to the virtual copy\n"
+        "  instead of the real file. These changes will be lost on the next launch with this setting enabled",
+        "",
+    ),
+    (
+        "debug_info",
+        "Log helpful stuff, including when the program/game is about to run.\n"
+        "If you encounter a problem, the log output might help fix it.",
         False,
     ),
 ]
+SETTINGS_CHOICES = {
+    "override_language": [
+        ("English", "en"),
+        ("Deutsch (German)", "de"),
+        ("Français (French)", "fr"),
+        ("Italiano (Italian)", "it"),
+        ("한국어 (Korean)", "ko"),
+        ("Español - España (Spanish - Spain)", "es"),
+        ("简体中文 (Simplified Chinese)", "zh-cn"),
+        ("繁體中文 (Traditional Chinese)", "zh-tw"),
+        ("Русский (Russian)", "ru"),
+        ("日本語 (Japanese)", "ja"),
+        ("Polski (Polish)", "pl"),
+        ("Português - Brasil (Portuguese - Brazil)", "pt-br"),
+    ]
+}
 
 
 class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
@@ -197,11 +232,15 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         self.writeModListTxt(mo2Mods)
         mappings.append(self.getModListTxtMapping())
 
+        # virtualize user_settings.config to override language
+        if config := self.writeUserSettingsConfig():
+            mappings.append(config)
+
         return mappings
 
     def onAboutToRun(self, appPath: str):
         try:
-            if self.getSetting("debug_info_on_run"):
+            if self.getSetting("debug_info"):
                 self.debugInfo()
 
             self.customMappings = self.generateCustomMappings()
@@ -266,6 +305,12 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
     def setSetting(self, key: str, value):
         self._organizer.setPluginSetting(self.name(), key, value)
+
+    def get(self, key: str, default=None):
+        return self._organizer.persistent(self.name(), key, default)
+
+    def set(self, key: str, value, sync=True):
+        self._organizer.setPersistent(self.name(), key, value, sync)
 
     def customMappingsDirectory(self):
         return Path(self._organizer.basePath()) / "custom_mappings/Darktide Mod Loader"
@@ -447,6 +492,35 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                 else:
                     f.write(f"--{mod.FolderName}\n")
 
+    def writeUserSettingsConfig(self):
+        if lang := self.getSetting("override_language"):
+            CONFIG = "user_settings.config"
+            userConfig = Path(self.documentsDirectory().absoluteFilePath(CONFIG))
+            virtConfig = Path(self._organizer.overwritePath()) / CONFIG
+
+            md5 = hashlib.md5()
+            md5.update(lang.encode("utf-8"))
+            if userConfig.is_file():
+                md5.update(userConfig.read_bytes())
+            configHash = md5.digest().hex().casefold()
+
+            isNewConfig = configHash != self.get(CONFIG)
+            if isNewConfig:
+                self.set(CONFIG, configHash, False)
+
+                pattern = re.compile(r"^\s*language_id\s*=\s*\".*?\"\s*$", re.IGNORECASE)
+                with virtConfig.open("w", encoding="utf-8", newline="\n") as virt:
+                    if userConfig.is_file():
+                        with userConfig.open("r", encoding="utf-8") as user:
+                            virt.writelines(
+                                line for line in user if not pattern.match(line)
+                            )
+                    virt.write(f'language_id = "{lang}"\n')
+
+                qInfo(f"Generated new virtual config '{virtConfig}'")
+
+            return mobase.Mapping(str(virtConfig), str(userConfig), False, True)
+
     def getModFolderName(self, mod: mobase.IModInterface):
         if mod.isSeparator():
             return
@@ -484,36 +558,60 @@ class DarktideSettingsDialog(QDialog):
         self.initWidgets()
 
     def initWidgets(self):
-        self.checkboxes: Dict[str, QCheckBox] = {}
+        self.widgets: Dict[str, QWidget] = {}
         self.initial: Dict[str, bool] = {}
         layout = QVBoxLayout(self)
 
         bg = self.palette().highlight().color()
         fg = self.palette().highlightedText().color()
+        disabled = self.palette().color(
+            QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text
+        )
         pt = max(self.font().pointSize(), 11)
         self.setStyleSheet(
             f"* {{ font-size: {pt}pt; }}"
             "QCheckBox { padding: 5px; border-radius: 5px; }"
             f"QCheckBox:hover {{ background-color: {bg.name()}; color: {fg.name()};  }}"
+            f'QComboBox[sad="true"] {{ color: {disabled.name()}; }}'
         )
 
-        for settingKey, settingDesc, _ in SETTINGS:
-            value = self.game.getSetting(settingKey)
-            self.initial[settingKey] = value
+        # settings
+        for settingKey, settingDesc, settingDefault in SETTINGS:
+            data = self.game.getSetting(settingKey)
+            self.initial[settingKey] = data
 
-            checkbox = QCheckBox(settingKey)
-            checkbox.setToolTip(settingDesc)
-            checkbox.setChecked(value)
-            checkbox.toggled.connect(lambda v: self.onSettingChanged(v, settingKey))
-            self.checkboxes[settingKey] = checkbox
-            layout.addWidget(checkbox)
+            if isinstance(settingDefault, bool):
+                # simple toggle
+                checkbox = QCheckBox(settingKey)
+                checkbox.setToolTip(settingDesc)
+                checkbox.setChecked(data)
+                checkbox.toggled.connect(lambda v: self.onSettingChanged(v, settingKey))
+                self.widgets[settingKey] = checkbox
+                layout.addWidget(checkbox)
+                continue
 
-        debug = QPushButton("Debug Info")
-        debug.setToolTip(
-            "If you encounter a bug, the log output of this button might help fix it."
-        )
-        debug.clicked.connect(self.game.debugInfo)
-        layout.addWidget(debug)
+            if choices := SETTINGS_CHOICES.get(settingKey):
+                # dropdown select
+                combo = QComboBox()
+                combo.setToolTip(settingDesc)
+                combo.addItem(settingKey, "")
+                for label, choice in choices:
+                    combo.addItem(label, choice)
+                combo.setCurrentIndex(max(0, combo.findData(data)))
+
+                def _update_style(index):
+                    combo.setProperty("sad", index == 0)
+                    combo.style().polish(combo)
+
+                _update_style(combo.currentIndex())
+                combo.currentIndexChanged.connect(_update_style)
+                combo.setItemData(0, QBrush(disabled), Qt.ItemDataRole.ForegroundRole)
+
+                self.widgets[settingKey] = combo
+                layout.addWidget(combo)
+                continue
+
+        self.widgets["debug_info"].toggled.connect(lambda v: v and self.game.debugInfo())
 
         self.updateSettingCoherency()
 
@@ -527,5 +625,7 @@ class DarktideSettingsDialog(QDialog):
 
     def onFinished(self, result: int):
         for k, v0 in self.initial.items():
-            if v0 != (v := self.checkboxes[k].isChecked()):
+            w = self.widgets[k]
+            v = w.currentData() if isinstance(w, QComboBox) else w.isChecked()
+            if v0 != v:
                 self.game.setSetting(k, v)
