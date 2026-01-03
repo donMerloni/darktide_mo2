@@ -64,7 +64,7 @@ NEXUS_DMF = 8
 NEXUS_DML = 19
 IGNORE = {NEXUS_DML, NEXUS_DMF, "dmf", "base"}
 
-## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these in settings() directly as mobase.PluginSetting
+## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
 SETTINGS = [
     (
         "combine_with_unmanaged_mods",
@@ -79,8 +79,8 @@ SETTINGS = [
         False,
     ),
     (
-        "show_popups",
-        "When MO2 runs without GUI, show a pop-up window for messages deemed important (mostly errors).\n"
+        "show_error_popups",
+        "When MO2 runs without GUI, show a pop-up window for error messages.\n"
         "If disabled, they only show up in the GUI and/or mo_interface.log",
         True,
     ),
@@ -143,7 +143,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def init(self, organizer: mobase.IOrganizer):
         BasicGame.init(self, organizer)
 
-        self.show_popups = self.getSetting("show_popups")
+        self.show_error_popups = self.getSetting("show_error_popups")
 
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
@@ -153,7 +153,8 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         return True
 
     def debugInfo(self):
-        import json, sys
+        import json
+        import sys
 
         modList = self._organizer.modList()
         stuff = [
@@ -165,14 +166,14 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
             ("allMods()", modList.allMods()),
             ("allModsByProfilePriority()", modList.allModsByProfilePriority()),
             ("Plugin", f"{self.Name}, {self.Author}, {self.Version}"),
-            ("getModListTxtMappingRaw()", self.getModListTxtMappingRaw()),
+            ("getModListTxtMapping()", self.getModListTxtMapping()),
             ("getMo2Mods()", json.dumps(self.getMo2Mods(), default=repr)),
             ("getUnmanagedMods()", json.dumps(self.getUnmanagedMods(), default=repr)),
         ]
         qCritical("Debug Info:\n" + "\n".join(f"{k}={str(v)}" for k, v in stuff))
 
     def onUserInterfaceInitialized(self, window: QMainWindow):
-        self.show_popups = False
+        self.show_error_popups = False
 
         # MO2 always calls onUserInterfaceInitialized for every plugin, even when not active
         game = self._organizer.managedGame()
@@ -194,7 +195,8 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         toolbar, action = _findToolbarAction("actionSettings")
         if toolbar:
             try:
-                import base64, zlib
+                import base64
+                import zlib
 
                 self.customAction = QAction(
                     QIcon(
@@ -229,8 +231,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
             mappings.extend(toAdd)
 
         # add mapping for mod_load_order.txt
-        self.writeModListTxt(mo2Mods)
-        mappings.append(self.getModListTxtMapping())
+        mappings.append(self.writeModListTxt(mo2Mods))
 
         # virtualize user_settings.config to override language
         if config := self.writeUserSettingsConfig():
@@ -247,7 +248,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
 
             return True
         except PluginError as err:
-            qCritical(str(err), popup=self.show_popups)
+            qCritical(str(err), popup=self.show_error_popups)
             return False
 
     def onFinishedRun(self, appPath: str, exitCode: int):
@@ -287,7 +288,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                         )
                         msg.extend(f"\n#{i}: {s}" for i, s in enumerate(errors, 1))
 
-            qCritical("".join(msg), popup=self.show_popups and "delayed")
+            qCritical("".join(msg), popup=self.show_error_popups and "delayed")
 
     def onModInstalled(self, mod: mobase.IModInterface):
         self.autoDetectMod(mod)
@@ -298,6 +299,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         return self.customMappings
 
     def settings(self):
+        ## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
         return [mobase.PluginSetting(*s) for s in SETTINGS]
 
     def getSetting(self, key: str):
@@ -315,17 +317,11 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def customMappingsDirectory(self):
         return Path(self._organizer.basePath()) / "custom_mappings/Darktide Mod Loader"
 
-    def getModListTxtMappingRaw(self):
-        # i wish i didn't need to do this... but same issue as settings()
+    def getModListTxtMapping(self):
+        ## FIXME: I wish I didn't need to do this... but same issue as settings()
         return (
             str(self._organizer.profilePath() / Path("mod_load_order.txt")),
             self.dataDirectory().absoluteFilePath("mod_load_order.txt"),
-        )
-
-    def getModListTxtMapping(self):
-        return mobase.Mapping(
-            *self.getModListTxtMappingRaw(),
-            False,
         )
 
     def getMo2Mods(self):
@@ -343,7 +339,7 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         ]
 
     def getUnmanagedMods(self):
-        listFile = Path(self.getModListTxtMappingRaw()[1])
+        listFile = Path(self.getModListTxtMapping()[1])
         if not listFile.exists():
             return []
 
@@ -482,7 +478,8 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                     modsDict[name] = Mod(i, True, name)
 
         # generate new mod list
-        with open(self.getModListTxtMappingRaw()[0], mode="w", encoding="utf-8") as f:
+        mapping = self.getModListTxtMapping()
+        with open(mapping[0], mode="w", encoding="utf-8") as f:
             for mod in sorted(modsDict.values(), key=lambda m: m.Priority):
                 if mod.FolderName in IGNORE:
                     continue
@@ -491,6 +488,8 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                     f.write(f"{mod.FolderName}\n")
                 else:
                     f.write(f"--{mod.FolderName}\n")
+
+        return mobase.Mapping(*mapping, False)
 
     def writeUserSettingsConfig(self):
         if lang := self.getSetting("override_language"):
@@ -616,8 +615,11 @@ class DarktideSettingsDialog(QDialog):
         self.updateSettingCoherency()
 
     def updateSettingCoherency(self):
-        self.checkboxes["load_unmanaged_mods_first"].setEnabled(
-            self.checkboxes["combine_with_unmanaged_mods"].isChecked()
+        self.widgets["load_unmanaged_mods_first"].setEnabled(
+            self.widgets["combine_with_unmanaged_mods"].isChecked()
+        )
+        self.widgets["inspect_crash"].setEnabled(
+            self.widgets["show_error_popups"].isChecked()
         )
 
     def onSettingChanged(self, value: bool, key: str):
