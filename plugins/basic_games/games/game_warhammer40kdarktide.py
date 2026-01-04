@@ -7,7 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Callable, Dict, List, Union
 
 import mobase
 
@@ -129,81 +129,28 @@ SETTINGS_CHOICES = {
 }
 
 
-class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
-    Name = "Warhammer 40,000: Darktide Support Plugin"
-    Author = "Nyvrak"
-    Version = "1.0.9"
+class BasedGame:
+    def findDirectory(
+        self: BasicGame,
+        paths: Union[str, List[str], Callable[[BasicGame], str]],
+        default: Callable[[BasicGame], QDir] = None,
+    ):
+        if paths:
+            if callable(paths):
+                paths = paths()
 
-    GameName = "Warhammer 40,000: Darktide"
-    GameShortName = "warhammer40kdarktide"
-    GameNexusName = "warhammer40kdarktide"
-    GameSteamId = 1361210
-    GameBinary = "binaries/Darktide.exe"
-    GameDataPath = "mods"
+            paths = paths if isinstance(paths, list) else [paths]
 
-    def __init__(self):
-        BasicGame.__init__(self)
-        mobase.IPluginFileMapper.__init__(self)
+            for p in paths:
+                if Path(os.path.expandvars(p)).is_dir():
+                    return QDir(p)
 
-    def init(self, organizer: mobase.IOrganizer):
-        BasicGame.init(self, organizer)
+        return default and default(self)
 
-        self.show_error_popups = self.getSetting("show_error_popups")
-        self._mappings.documentsDirectory._default = (
-            lambda _: self.findDocumentsDirectory()
-        )
-
-        organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
-        organizer.onAboutToRun(self.onAboutToRun)
-        organizer.onFinishedRun(self.onFinishedRun)
-        organizer.modList().onModInstalled(self.onModInstalled)
-
-        return True
-
-    def findDocumentsDirectory(self):
-        paths = [
-            "%USERPROFILE%/AppData/Roaming/Fatshark/Darktide",
-            "%USERPROFILE%/AppData/Roaming/Fatshark/MicrosoftStore/Darktide",
-        ]
-        if self.getSetting("prefer_microsoft_store_documents"):
-            paths.reverse()
-
-        for p in paths:
-            if Path(os.path.expandvars(p)).is_dir():
-                self.GameDocumentsDirectory = p
-                return QDir(p)
-
-        return BasicGameMappings._default_documents_directory(self)
-
-    def debugInfo(self):
-        import json
-        import sys
-
-        modList = self._organizer.modList()
-        stuff = [
-            ("os.name", os.name),
-            ("sys.version", sys.version),
-            ("sys.api_version", sys.api_version),
-            ("qVersion()", qVersion()),
-            ("organizer.appVersion()", self._organizer.appVersion()),
-            ("allMods()", modList.allMods()),
-            ("allModsByProfilePriority()", modList.allModsByProfilePriority()),
-            ("Plugin", f"{self.Name}, {self.Author}, {self.Version}"),
-            ("getModListTxtMapping()", self.getModListTxtMapping()),
-            ("getMo2Mods()", json.dumps(self.getMo2Mods(), default=repr)),
-            ("getUnmanagedMods()", json.dumps(self.getUnmanagedMods(), default=repr)),
-        ]
-        qCritical("Debug Info:\n" + "\n".join(f"{k}={str(v)}" for k, v in stuff))
-
-    def onUserInterfaceInitialized(self, window: QMainWindow):
-        self.show_error_popups = False
-
-        # MO2 always calls onUserInterfaceInitialized for every plugin, even when not active
-        game = self._organizer.managedGame()
-        if not (game == self or game.gameShortName() == self.gameShortName()):
-            # stop if our plugin is not active (e.g. not a Darktide instance)
-            return
-
+    @staticmethod
+    def addCustomToolbarAction(
+        window: QMainWindow, name, icon_xpm, callback=None
+    ) -> QAction:
         def _findToolbarAction(actionName):
             toolbar1 = None
             for toolbar in window.findChildren(QToolBar):
@@ -221,28 +168,127 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
                 import base64
                 import zlib
 
-                self.customAction = QAction(
+                customAction = QAction(
                     QIcon(
                         QPixmap(
-                            zlib.decompress(
-                                base64.b85decode(
-                                    "c$|IIYg^h#6bJD4=TpQAy~IH0K9fR2Cn3>zuVA(GQ3O%jlBfIq-|d+b+-i5-6Z7N;{GFT`CP)!U5m^&)h@#u*_^)4gu!Y!W3J(dd$R@mkZE}u>hfXkO_&$d&x!{Itcug+R2Hpe<CO9wPEm;UD7`!8E?zw}Q?1dH*cF1EKpFz@^r(8lWSaP9w4t=thN^*D~tekSP0!GfIkqkJwP^Ho!$R!_RKQdS|yt4yE=E4aBnrxNFydkGbN(Z(z9vmFGG)!AagAK!3I{4696zBn2C@nP%$yyY`!AG(ani<H*1@@_6L@tHLIeuy_E5*Q*E2FfBJlNtg<2c2}MmZRhx$#CpNfugZ1=Yq{jA56oCFdOWTI<|ssDqu>-Wb>?8xhw0pf$Fi!Xeoji#{SdQLqw@$zG+(zzMl9%1StGZLLY+GkI*e9>ZB{m)aC2<kC1PU>clCDVc-w*0^p8zL1Ry_qu59Qs?24Y^`@1z6N`vnKUqKZJo66jcm139<In<c~QVMxo|EOFejI(OfB35=R7rDz=EuulsPQPM&`J;Z^@-MzJgV7A><g>>W-|v&lTL0jT_4X9)iaVH_#Zqlk+rJ0)CJy&v1|Z3@&+EDh})5iu+V4Xvk%5@%xRUt+(3Zd~I9KI@eyk=UY(((W|&0zfkt<O$1wU+<CG3XIrq{fBExH$G(T|{{~_Uu_drjeXKZ6{wr`gpWlSP8?5=o-al={dJ`z?`lLQS!NTjw^_~7#025ekpso+DFWNv)LzluuiIHz#ug=ep59+;x`s8l>*h7~_DC)Ybv!I<Ms}FFH+wQX_F;J9jb7K@!m*w+7sK<aRM$75o@{d54Z34IqY`R*qlTMQSF@g$`%TY2~E|*g!m(%XEKo$ZCezsgao+Eq~+5jumW(4~0k(9gPnuLY&6v(pd69qcc)l{i0V-g4G#N{TShL~sra#t1EFgwoVYT1n$^l8atNVI`PV}?p*=eu3J$5d_tq7C#GgKFI@*rZZdNoR^}J_h7)ILrz?X|UGe9DM0?!-OQT%?KjJG1$79F@}T8c6V?^mJ)yZ*ro^kVNj}SX2~#9Z2i#dB-7Py2iIXU!e}%)l8dGpj7HO`STySjJ9rY<36=b48iv;}lV)<X!WNAO=6`R|-lUn(_qAS|WCzzYF^AAUeX@yr>vh$|$u=`;tk)?#yuNtyV1#LYzsGs5d+i&CIc(|q?*x08%$nwBbw6vj#$maS53in|oo;HZy?$saUzYgd^XX~vF$$0WJElXKPz7UycrX|gcn&`7N73Jh1DTN"
-                                )
-                            )
+                            zlib.decompress(base64.b85decode(icon_xpm))
                             .decode()
                             .splitlines()
                         )
                     ),
-                    "Darktide Settings",
+                    name,
                     action.parent(),
                 )
-                self.customAction.triggered.connect(self.onCustomSettingsOpened)
-                toolbar.insertAction(action, self.customAction)
+                toolbar.insertAction(action, customAction)
+                if callback:
+                    customAction.triggered.connect(lambda: callback())
+                return customAction
             except Exception as e:
                 qCritical(str(e))
 
-    def onCustomSettingsOpened(self, checked: bool):
-        DarktideSettingsDialog(self).exec()
+    def isPluginActive(self: BasicGame):
+        game = self._organizer.managedGame()
+        return game == self or (
+            game.gameName() == self.gameName() and game.author() == self.author()
+        )
+
+    def getSetting(self: BasicGame, key: str):
+        return self._organizer.pluginSetting(self.name(), key)
+
+    def setSetting(self: BasicGame, key: str, value):
+        self._organizer.setPluginSetting(self.name(), key, value)
+
+    def get(self: BasicGame, key: str, default=None):
+        return self._organizer.persistent(self.name(), key, default)
+
+    def set(self: BasicGame, key: str, value, sync=True):
+        self._organizer.setPersistent(self.name(), key, value, sync)
+
+
+class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper):
+    Name = "Warhammer 40,000: Darktide Support Plugin"
+    Author = "Nyvrak"
+    Version = "1.0.9"
+
+    GameName = "Warhammer 40,000: Darktide"
+    GameShortName = "warhammer40kdarktide"
+    GameNexusName = "warhammer40kdarktide"
+    GameSteamId = 1361210
+    GameBinary = "binaries/Darktide.exe"
+    GameDataPath = "mods"
+
+    def GameDocumentsDirectory(self):
+        paths = [
+            "%USERPROFILE%/AppData/Roaming/Fatshark/Darktide",
+            "%USERPROFILE%/AppData/Roaming/Fatshark/MicrosoftStore/Darktide",
+        ]
+        return (
+            list(reversed(paths))
+            if self.getSetting("prefer_microsoft_store_documents")
+            else paths
+        )
+
+    CustomSettingsName = "Darktide Settings"
+    CustomSettingsIcon = "c$|IIYg^h#6bJD4=TpQAy~IH0K9fR2Cn3>zuVA(GQ3O%jlBfIq-|d+b+-i5-6Z7N;{GFT`CP)!U5m^&)h@#u*_^)4gu!Y!W3J(dd$R@mkZE}u>hfXkO_&$d&x!{Itcug+R2Hpe<CO9wPEm;UD7`!8E?zw}Q?1dH*cF1EKpFz@^r(8lWSaP9w4t=thN^*D~tekSP0!GfIkqkJwP^Ho!$R!_RKQdS|yt4yE=E4aBnrxNFydkGbN(Z(z9vmFGG)!AagAK!3I{4696zBn2C@nP%$yyY`!AG(ani<H*1@@_6L@tHLIeuy_E5*Q*E2FfBJlNtg<2c2}MmZRhx$#CpNfugZ1=Yq{jA56oCFdOWTI<|ssDqu>-Wb>?8xhw0pf$Fi!Xeoji#{SdQLqw@$zG+(zzMl9%1StGZLLY+GkI*e9>ZB{m)aC2<kC1PU>clCDVc-w*0^p8zL1Ry_qu59Qs?24Y^`@1z6N`vnKUqKZJo66jcm139<In<c~QVMxo|EOFejI(OfB35=R7rDz=EuulsPQPM&`J;Z^@-MzJgV7A><g>>W-|v&lTL0jT_4X9)iaVH_#Zqlk+rJ0)CJy&v1|Z3@&+EDh})5iu+V4Xvk%5@%xRUt+(3Zd~I9KI@eyk=UY(((W|&0zfkt<O$1wU+<CG3XIrq{fBExH$G(T|{{~_Uu_drjeXKZ6{wr`gpWlSP8?5=o-al={dJ`z?`lLQS!NTjw^_~7#025ekpso+DFWNv)LzluuiIHz#ug=ep59+;x`s8l>*h7~_DC)Ybv!I<Ms}FFH+wQX_F;J9jb7K@!m*w+7sK<aRM$75o@{d54Z34IqY`R*qlTMQSF@g$`%TY2~E|*g!m(%XEKo$ZCezsgao+Eq~+5jumW(4~0k(9gPnuLY&6v(pd69qcc)l{i0V-g4G#N{TShL~sra#t1EFgwoVYT1n$^l8atNVI`PV}?p*=eu3J$5d_tq7C#GgKFI@*rZZdNoR^}J_h7)ILrz?X|UGe9DM0?!-OQT%?KjJG1$79F@}T8c6V?^mJ)yZ*ro^kVNj}SX2~#9Z2i#dB-7Py2iIXU!e}%)l8dGpj7HO`STySjJ9rY<36=b48iv;}lV)<X!WNAO=6`R|-lUn(_qAS|WCzzYF^AAUeX@yr>vh$|$u=`;tk)?#yuNtyV1#LYzsGs5d+i&CIc(|q?*x08%$nwBbw6vj#$maS53in|oo;HZy?$saUzYgd^XX~vF$$0WJElXKPz7UycrX|gcn&`7N73Jh1DTN"
+
+    def __init__(self):
+        BasicGame.__init__(self)
+        mobase.IPluginFileMapper.__init__(self)
+
+    def init(self, organizer: mobase.IOrganizer):
+        BasicGame.init(self, organizer)
+
+        self._mappings.documentsDirectory._default = lambda _: self.findDirectory(
+            self.GameDocumentsDirectory,
+            BasicGameMappings._default_documents_directory,
+        )
+
+        self.show_error_popups = self.getSetting("show_error_popups")
+        self.customSettingsAction: QAction = None
+        self.customSettingsDialog: QDialog = None
+
+        organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
+        organizer.onAboutToRun(self.onAboutToRun)
+        organizer.onFinishedRun(self.onFinishedRun)
+        organizer.modList().onModInstalled(self.onModInstalled)
+
+        return True
+
+    def debugInfo(self):
+        import json
+        import sys
+
+        stuff = [
+            ("Plugin", f"{self.Name} ({self.Version}) by {self.Author}"),
+            ("OS", os.name),
+            ("Python", sys.version),
+            ("Qt", qVersion()),
+            ("ModOrganizer2", self._organizer.appVersion()),
+            ("mod_load_order.txt", self.getModListTxtMapping()),
+            ("Mods", json.dumps(self.getMo2Mods(), default=repr)),
+            ("Unmanaged mods", json.dumps(self.getUnmanagedMods(), default=repr)),
+        ]
+        qInfo("Debug Info: " + " ".join(f"{k} = '{str(v)}';" for k, v in stuff))
+
+    def onUserInterfaceInitialized(self, window: QMainWindow):
+        self.show_error_popups = False
+
+        # MO2 always calls onUserInterfaceInitialized for every plugin, even when not active
+        if not self.isPluginActive():
+            return
+
+        if icon := getattr(self, "CustomSettingsIcon", None):
+            self.customSettingsAction = self.addCustomToolbarAction(
+                window,
+                getattr(self, "CustomSettingsName", f"{self.gameName()} Settings"),
+                icon,
+                self.onCustomSettingsOpened,
+            )
+            self.customSettingsDialog = DarktideSettingsDialog(self)
+
+    def onCustomSettingsOpened(self):
+        (self.customSettingsDialog or DarktideSettingsDialog(self)).exec()
+        self.customSettingsDialog = None
 
     def generateCustomMappings(self):
         mo2Mods = self.getMo2Mods()
@@ -324,18 +370,6 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     def settings(self):
         ## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
         return [mobase.PluginSetting(*s) for s in SETTINGS]
-
-    def getSetting(self, key: str):
-        return self._organizer.pluginSetting(self.name(), key)
-
-    def setSetting(self, key: str, value):
-        self._organizer.setPluginSetting(self.name(), key, value)
-
-    def get(self, key: str, default=None):
-        return self._organizer.persistent(self.name(), key, default)
-
-    def set(self, key: str, value, sync=True):
-        self._organizer.setPersistent(self.name(), key, value, sync)
 
     def customMappingsDirectory(self):
         return Path(self._organizer.basePath()) / "custom_mappings/Darktide Mod Loader"
@@ -574,8 +608,8 @@ class DarktideSettingsDialog(QDialog):
     def __init__(self, game: Warhammer40000DarktideGame):
         QDialog.__init__(self)
         self.game = game
-        self.setWindowTitle("Darktide Settings")
-        self.setWindowIcon(game.customAction.icon())
+        self.setWindowTitle(game.customSettingsAction.text())
+        self.setWindowIcon(game.customSettingsAction.icon())
         self.finished.connect(self.onFinished)
         self.initWidgets()
 
@@ -597,7 +631,7 @@ class DarktideSettingsDialog(QDialog):
             f'QComboBox[sad="true"] {{ color: {disabled.name()}; }}'
         )
 
-        # settings
+        # create setting widgets
         for settingKey, settingDesc, settingDefault in SETTINGS:
             data = self.game.getSetting(settingKey)
             self.initial[settingKey] = data
