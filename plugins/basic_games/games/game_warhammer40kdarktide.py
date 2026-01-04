@@ -11,11 +11,11 @@ from typing import Dict, List
 
 import mobase
 
-from ..basic_game import BasicGame
+from ..basic_game import BasicGame, BasicGameMappings
 
 try:
     # fmt:off
-    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtCore import QDir, Qt, QTimer
     from PyQt6.QtCore import qCritical as _qCritical
     from PyQt6.QtCore import qInfo as _qInfo
     from PyQt6.QtCore import qVersion
@@ -24,7 +24,7 @@ try:
                                  QMessageBox, QToolBar, QVBoxLayout, QWidget)
 except:
     # fmt:off
-    from PyQt5.QtCore import Qt, QTimer
+    from PyQt5.QtCore import QDir, Qt, QTimer
     from PyQt5.QtCore import qCritical as _qCritical
     from PyQt5.QtCore import qInfo as _qInfo
     from PyQt5.QtCore import qVersion
@@ -99,6 +99,12 @@ SETTINGS = [
         "",
     ),
     (
+        "prefer_microsoft_store_documents",
+        "In the sorry case that both default and Microsoft Store documents exist, use %USERPROFILE%\\AppData\\Roaming\\Fatshark\\MicrosoftStore\\Darktide\n"
+        "If disabled, the usual path is used: %USERPROFILE%\\AppData\\Roaming\\Fatshark\\Darktide",
+        False,
+    ),
+    (
         "debug_info",
         "Log helpful stuff, including when the program/game is about to run.\n"
         "If you encounter a problem, the log output might help fix it.",
@@ -134,7 +140,6 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
     GameSteamId = 1361210
     GameBinary = "binaries/Darktide.exe"
     GameDataPath = "mods"
-    GameDocumentsDirectory = "%USERPROFILE%/AppData/Roaming/Fatshark/Darktide"
 
     def __init__(self):
         BasicGame.__init__(self)
@@ -144,6 +149,9 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         BasicGame.init(self, organizer)
 
         self.show_error_popups = self.getSetting("show_error_popups")
+        self._mappings.documentsDirectory._default = (
+            lambda _: self.findDocumentsDirectory()
+        )
 
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
@@ -151,6 +159,21 @@ class Warhammer40000DarktideGame(BasicGame, mobase.IPluginFileMapper):
         organizer.modList().onModInstalled(self.onModInstalled)
 
         return True
+
+    def findDocumentsDirectory(self):
+        paths = [
+            "%USERPROFILE%/AppData/Roaming/Fatshark/Darktide",
+            "%USERPROFILE%/AppData/Roaming/Fatshark/MicrosoftStore/Darktide",
+        ]
+        if self.getSetting("prefer_microsoft_store_documents"):
+            paths.reverse()
+
+        for p in paths:
+            if Path(os.path.expandvars(p)).is_dir():
+                self.GameDocumentsDirectory = p
+                return QDir(p)
+
+        return BasicGameMappings._default_documents_directory(self)
 
     def debugInfo(self):
         import json
