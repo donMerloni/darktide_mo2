@@ -642,7 +642,7 @@ class DarktideSettingsDialog(QDialog):
                 checkbox.setToolTip(setting_desc)
                 checkbox.setChecked(data)
                 checkbox.toggled.connect(
-                    lambda v: self.on_setting_changed(v, setting_key)
+                    lambda v, k=setting_key: self.on_setting_changed(k, v)
                 )
                 self.widgets[setting_key] = checkbox
                 layout.addWidget(checkbox)
@@ -681,7 +681,7 @@ class DarktideSettingsDialog(QDialog):
             self.widgets["show_error_popups"].isChecked()
         )
 
-    def on_setting_changed(self, value: bool, key: str):
+    def on_setting_changed(self, key: str, value: bool):
         self.update_coherency()
 
     def on_finished(self, result: int):
