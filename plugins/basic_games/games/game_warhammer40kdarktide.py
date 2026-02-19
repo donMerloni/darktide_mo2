@@ -20,8 +20,9 @@ try:
     from PyQt6.QtCore import qInfo as _qInfo
     from PyQt6.QtCore import qVersion
     from PyQt6.QtGui import QAction, QBrush, QIcon, QPalette, QPixmap
-    from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QMainWindow,
-                                 QMessageBox, QToolBar, QVBoxLayout, QWidget)
+    from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QLineEdit,
+                                 QMainWindow, QMessageBox, QToolBar,
+                                 QVBoxLayout, QWidget)
 except:
     # fmt:off
     from PyQt5.QtCore import QDir, Qt, QTimer
@@ -30,7 +31,7 @@ except:
     from PyQt5.QtCore import qVersion
     from PyQt5.QtGui import QBrush, QIcon, QPalette, QPixmap
     from PyQt5.QtWidgets import (QAction, QCheckBox, QComboBox, QDialog,
-                                 QMainWindow, QMessageBox, QToolBar,
+                                 QLineEdit, QMainWindow, QMessageBox, QToolBar,
                                  QVBoxLayout, QWidget)
 
 
@@ -88,6 +89,11 @@ SETTINGS = [
         "inspect_crash",
         "Log errors on non-zero exit codes and scan Darktide console_logs for Lua errors.",
         True,
+    ),
+    (
+        "exit_code_whitelist",
+        "Comma-separated list of exit code numbers that should not be interpreted as crashes. 0 and 259 are always implied.",
+        "",
     ),
     (
         "override_language",
@@ -285,44 +291,51 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             return False
 
     def onFinishedRun(self, appPath: str, exitCode: int):
-        STILL_ACTIVE = 259
-        STATUS_OK = {None, 0, STILL_ACTIVE}
+        if not self.setting("inspect_crash"):
+            return
 
-        if exitCode not in STATUS_OK and self.setting("inspect_crash"):
-            msg = [f"{Path(appPath).name} exited with code {exitCode}"]
-            console_logs = Path(
-                self.documentsDirectory().absoluteFilePath("console_logs")
-            )
-            if log := max(console_logs.glob("*.log"), key=os.path.getmtime, default=None):
-                with log.open("r", encoding="utf-8") as f:
-                    if errors := re.findall(
-                        r"<<Lua Error>>(.+?)<</Lua Error>>",
-                        f.read(),
-                        re.DOTALL | re.IGNORECASE,
-                    ):
+        # EXIT_SUCCESS = 0    STILL_ACTIVE = 259
+        EXIT_OK = {None, 0, 259} | {
+            int(d)
+            for i in self.setting("exit_code_whitelist").split(",")
+            if (d := i.strip()).isdigit()
+        }
+        if exitCode in EXIT_OK:
+            return
 
-                        def _time_ago(seconds):
-                            for unit, name in [
-                                (60 * 60 * 24, "day"),
-                                (60 * 60, "hour"),
-                                (60, "minute"),
-                                (1, "second"),
-                            ]:
-                                if seconds >= unit:
-                                    n = int(seconds / unit)
-                                    return f"{n} {name}" + (" ago" if n == 1 else "s ago")
-                            return "now"
+        msg = [f"{Path(appPath).name} exited with code {exitCode}"]
 
-                        seconds = (
-                            datetime.now(tz=timezone.utc).timestamp()
-                            - log.stat().st_mtime
-                        )
-                        msg.append(
-                            f"\n\nRecent Lua Errors in\n{log.name}\n    (modified {_time_ago(seconds)})\n"
-                        )
-                        msg.extend(f"\n#{i}: {s}" for i, s in enumerate(errors, 1))
+        console_logs = Path(self.documentsDirectory().absoluteFilePath("console_logs"))
+        for log in sorted(console_logs.glob("*.log"), key=os.path.getmtime, reverse=True):
+            with log.open("r", encoding="utf-8") as f:
+                if errors := re.findall(
+                    r"<<Lua Error>>(.+?)<</Lua Error>>",
+                    f.read(),
+                    re.DOTALL | re.IGNORECASE,
+                ):
 
-            qCritical("".join(msg), popup=self.show_error_popups and "delayed")
+                    def _time_ago(seconds):
+                        for unit, name in [
+                            (60 * 60 * 24, "day"),
+                            (60 * 60, "hour"),
+                            (60, "minute"),
+                            (1, "second"),
+                        ]:
+                            if seconds >= unit:
+                                n = int(seconds / unit)
+                                return f"{n} {name}" + (" ago" if n == 1 else "s ago")
+                        return "now"
+
+                    seconds = (
+                        datetime.now(tz=timezone.utc).timestamp() - log.stat().st_mtime
+                    )
+                    msg.append(
+                        f"\n\nRecent Lua Errors in\n{log.name}\n    (modified {_time_ago(seconds)})\n"
+                    )
+                    msg.extend(f"\n#{i}: {s}" for i, s in enumerate(errors, 1))
+            break
+
+        qCritical("".join(msg), popup=self.show_error_popups and "delayed")
 
     def onModInstalled(self, mod: mobase.IModInterface):
         self.identify_mod(mod)
@@ -664,6 +677,18 @@ class DarktideSettingsDialog(QDialog):
                 layout.addWidget(combo)
                 continue
 
+            if isinstance(setting_default, str):
+                # string input
+                textbox = QLineEdit(data)
+                textbox.setToolTip(setting_desc)
+                textbox.setPlaceholderText(setting_key)
+                textbox.textChanged.connect(
+                    lambda v, k=setting_key: self.on_setting_changed(k, v)
+                )
+                self.widgets[setting_key] = textbox
+                layout.addWidget(textbox)
+                continue
+
         self.widgets["debug_info"].toggled.connect(lambda v: v and self.game.debug_info())
 
         self.update_coherency()
@@ -672,6 +697,9 @@ class DarktideSettingsDialog(QDialog):
         self.widgets["load_unmanaged_mods_first"].setEnabled(
             self.widgets["combine_with_unmanaged_mods"].isChecked()
         )
+        self.widgets["exit_code_whitelist"].setEnabled(
+            self.widgets["inspect_crash"].isChecked()
+        )
 
     def on_setting_changed(self, key: str, value: bool):
         self.update_coherency()
@@ -679,6 +707,10 @@ class DarktideSettingsDialog(QDialog):
     def on_finished(self, result: int):
         for k, v0 in self.initial.items():
             w = self.widgets[k]
-            v = w.currentData() if isinstance(w, QComboBox) else w.isChecked()
+            v = (
+                w.currentData()
+                if isinstance(w, QComboBox)
+                else w.text() if isinstance(w, QLineEdit) else w.isChecked()
+            )
             if v0 != v:
                 self.game.set_setting(k, v)
