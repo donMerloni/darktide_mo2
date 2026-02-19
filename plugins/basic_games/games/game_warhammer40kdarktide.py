@@ -92,7 +92,7 @@ SETTINGS = [
     ),
     (
         "exit_code_whitelist",
-        "Comma-separated list of exit code numbers that should not be interpreted as crashes. 0 and 259 are always implied.",
+        "Comma-separated list of exit code numbers that should not be interpreted as crashes.",
         "",
     ),
     (
