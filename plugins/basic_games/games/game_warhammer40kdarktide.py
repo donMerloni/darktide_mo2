@@ -62,7 +62,7 @@ class Mod:
 
 NEXUS_DMF = 8
 NEXUS_DML = 19
-IGNORE = {NEXUS_DML, NEXUS_DMF, "dmf", "base"}
+IGNORED_MODS = {NEXUS_DML, NEXUS_DMF, "dmf", "base"}
 
 ## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
 SETTINGS = [
@@ -254,21 +254,12 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
         return True
 
-    def debug_info(self):
-        import json
-        import sys
+    def mappings(self):
+        return self.custom_mappings
 
-        stuff = [
-            ("Plugin", f"{self.Name} ({self.Version}) by {self.Author}"),
-            ("OS", os.name),
-            ("Python", sys.version),
-            ("Qt", str(qVersion())),
-            ("ModOrganizer2", str(self._organizer.appVersion())),
-            ("mod_load_order.txt", self.mod_list_mapping()),
-            ("Mods", self.get_mods()),
-            ("Unmanaged mods", self.get_unmanaged_mods()),
-        ]
-        qInfo("Debug Info: " + " ".join(f'{k} = "{v}";' for k, v in stuff))
+    def settings(self):
+        ## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
+        return [mobase.PluginSetting(*s) for s in SETTINGS]
 
     def onUserInterfaceInitialized(self, window: QMainWindow):
         self.show_error_popups = False
@@ -285,28 +276,6 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
                 self.open_settings_dialog,
             )
             self.settings_dialog = DarktideSettingsDialog(self)
-
-    def open_settings_dialog(self):
-        (self.settings_dialog or DarktideSettingsDialog(self)).exec()
-        self.settings_dialog = None
-
-    def build_custom_mappings(self):
-        mods = self.get_mods()
-        mappings = []
-
-        # add our custom mappings for DML, if installed
-        if dml := next((m for m in mods if m.nexus_id == NEXUS_DML and m.active), None):
-            toAdd = self.apply_dml(self._organizer.modList().getMod(dml.name))
-            mappings.extend(toAdd)
-
-        # add mapping for mod_load_order.txt
-        mappings.append(self.apply_mod_list(mods))
-
-        # virtualize user_settings.config to override language
-        if config := self.apply_user_settings():
-            mappings.append(config)
-
-        return mappings
 
     def onAboutToRun(self, appPath: str):
         try:
@@ -365,22 +334,30 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         if mod.nexusId() == NEXUS_DML:
             self.install_dml(mod)
 
-    def mappings(self):
-        return self.custom_mappings
+    def open_settings_dialog(self):
+        (self.settings_dialog or DarktideSettingsDialog(self)).exec()
+        self.settings_dialog = None
 
-    def settings(self):
-        ## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
-        return [mobase.PluginSetting(*s) for s in SETTINGS]
+    def build_custom_mappings(self):
+        mods = self.get_mods()
+        mappings = []
+
+        # add our custom mappings for DML, if installed
+        if dml := next((m for m in mods if m.nexus_id == NEXUS_DML and m.active), None):
+            toAdd = self.apply_dml(self._organizer.modList().getMod(dml.name))
+            mappings.extend(toAdd)
+
+        # add mapping for mod_load_order.txt
+        mappings.append(self.apply_mod_list(mods))
+
+        # virtualize user_settings.config to override language
+        if config := self.apply_user_settings():
+            mappings.append(config)
+
+        return mappings
 
     def custom_mappings_directory(self):
         return Path(self._organizer.basePath()) / "custom_mappings/Darktide Mod Loader"
-
-    def mod_list_mapping(self):
-        ## FIXME: I wish I didn't need to do this... but same issue as settings()
-        return (
-            str(self._organizer.profilePath() / Path("mod_load_order.txt")),
-            self.dataDirectory().absoluteFilePath("mod_load_order.txt"),
-        )
 
     def get_mods(self):
         modList = self._organizer.modList()
@@ -452,6 +429,13 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         os.rmdir(custom_mods_dir)  # not needed but I'm paranoid
 
         qInfo(f"Installed Darktide Mod Loader to: '{custom_dir}'")
+
+    def mod_list_mapping(self):
+        ## FIXME: I wish I didn't need to do this... but same issue as settings()
+        return (
+            str(self._organizer.profilePath() / Path("mod_load_order.txt")),
+            self.dataDirectory().absoluteFilePath("mod_load_order.txt"),
+        )
 
     def apply_dml(self, mod: mobase.IModInterface):
         assert mod.nexusId() == NEXUS_DML
@@ -539,7 +523,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         mod_list = self.mod_list_mapping()
         with open(mod_list[0], mode="w", encoding="utf-8") as f:
             for mod in sorted(mods_dict.values(), key=lambda m: m.priority):
-                if mod.folder_name in IGNORE:
+                if mod.folder_name in IGNORED_MODS:
                     continue
 
                 if mod.active:
@@ -581,7 +565,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
     def get_mod_folder_name(self, mod: mobase.IModInterface):
         if mod.isSeparator():
             return
-        if mod.nexusId() in IGNORE:
+        if mod.nexusId() in IGNORED_MODS:
             return
 
         tree = mod.fileTree()
@@ -603,6 +587,21 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             qCritical(f"Could not find mod folder name for: '{mod.name()}'")
 
         return folder_name
+
+    def debug_info(self):
+        import sys
+
+        stuff = [
+            ("Plugin", f"{self.Name} ({self.Version}) by {self.Author}"),
+            ("OS", os.name),
+            ("Python", sys.version),
+            ("Qt", str(qVersion())),
+            ("ModOrganizer2", str(self._organizer.appVersion())),
+            ("mod_load_order.txt", self.mod_list_mapping()),
+            ("Mods", self.get_mods()),
+            ("Unmanaged mods", self.get_unmanaged_mods()),
+        ]
+        qInfo("Debug Info: " + " ".join(f'{k} = "{v}";' for k, v in stuff))
 
 
 class DarktideSettingsDialog(QDialog):
