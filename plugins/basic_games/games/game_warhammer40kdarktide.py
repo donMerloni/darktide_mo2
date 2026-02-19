@@ -677,9 +677,6 @@ class DarktideSettingsDialog(QDialog):
         self.widgets["load_unmanaged_mods_first"].setEnabled(
             self.widgets["combine_with_unmanaged_mods"].isChecked()
         )
-        self.widgets["inspect_crash"].setEnabled(
-            self.widgets["show_error_popups"].isChecked()
-        )
 
     def on_setting_changed(self, key: str, value: bool):
         self.update_coherency()
