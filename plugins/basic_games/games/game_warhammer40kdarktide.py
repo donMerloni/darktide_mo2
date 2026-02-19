@@ -53,11 +53,11 @@ class PluginError(Exception):
 
 @dataclass
 class Mod:
-    Priority: int
-    Active: bool
-    FolderName: str
-    NexusID: int = 0
-    Name: str = None
+    priority: int
+    active: bool
+    folder_name: str
+    nexus_id: int = 0
+    name: str = None
 
 
 NEXUS_DMF = 8
@@ -130,7 +130,7 @@ SETTINGS_CHOICES = {
 
 
 class BasedGame:
-    def findDirectory(
+    def find_directory(
         self: BasicGame,
         paths: Union[str, List[str], Callable[[BasicGame], str]],
         default: Callable[[BasicGame], QDir] = None,
@@ -148,27 +148,27 @@ class BasedGame:
         return default and default(self)
 
     @staticmethod
-    def addCustomToolbarAction(
+    def add_custom_toolbar_action(
         window: QMainWindow, name, icon_xpm, callback=None
     ) -> QAction:
-        def _findToolbarAction(actionName):
+        def _find_toolbar_action(action_name):
             toolbar1 = None
             for toolbar in window.findChildren(QToolBar):
                 for action in toolbar.actions():
                     toolbar1 = toolbar1 or toolbar
-                    if action.objectName() == actionName:
+                    if action.objectName() == action_name:
                         return toolbar, action
 
             return toolbar1, None
 
         # add custom toolbar icon
-        toolbar, action = _findToolbarAction("actionSettings")
+        toolbar, action = _find_toolbar_action("actionSettings")
         if toolbar:
             try:
                 import base64
                 import zlib
 
-                customAction = QAction(
+                custom_action = QAction(
                     QIcon(
                         QPixmap(
                             zlib.decompress(base64.b85decode(icon_xpm))
@@ -179,29 +179,29 @@ class BasedGame:
                     name,
                     action.parent(),
                 )
-                toolbar.insertAction(action, customAction)
+                toolbar.insertAction(action, custom_action)
                 if callback:
-                    customAction.triggered.connect(lambda: callback())
-                return customAction
+                    custom_action.triggered.connect(lambda: callback())
+                return custom_action
             except Exception as e:
                 qCritical(str(e))
 
-    def isPluginActive(self: BasicGame):
+    def is_plugin_active(self: BasicGame):
         game = self._organizer.managedGame()
         return game == self or (
             game.gameName() == self.gameName() and game.author() == self.author()
         )
 
-    def getSetting(self: BasicGame, key: str):
+    def setting(self: BasicGame, key: str):
         return self._organizer.pluginSetting(self.name(), key)
 
-    def setSetting(self: BasicGame, key: str, value):
+    def set_setting(self: BasicGame, key: str, value):
         self._organizer.setPluginSetting(self.name(), key, value)
 
-    def get(self: BasicGame, key: str, default=None):
+    def persistent(self: BasicGame, key: str, default=None):
         return self._organizer.persistent(self.name(), key, default)
 
-    def set(self: BasicGame, key: str, value, sync=True):
+    def set_persistent(self: BasicGame, key: str, value, sync=True):
         self._organizer.setPersistent(self.name(), key, value, sync)
 
 
@@ -224,7 +224,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         ]
         return (
             list(reversed(paths))
-            if self.getSetting("prefer_microsoft_store_documents")
+            if self.setting("prefer_microsoft_store_documents")
             else paths
         )
 
@@ -238,14 +238,14 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
     def init(self, organizer: mobase.IOrganizer):
         BasicGame.init(self, organizer)
 
-        self._mappings.documentsDirectory._default = lambda _: self.findDirectory(
+        self._mappings.documentsDirectory._default = lambda _: self.find_directory(
             self.GameDocumentsDirectory,
             BasicGameMappings._default_documents_directory,
         )
 
-        self.show_error_popups = self.getSetting("show_error_popups")
-        self.customSettingsAction: QAction = None
-        self.customSettingsDialog: QDialog = None
+        self.show_error_popups = self.setting("show_error_popups")
+        self.settings_action: QAction = None
+        self.settings_dialog: QDialog = None
 
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
@@ -254,7 +254,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
         return True
 
-    def debugInfo(self):
+    def debug_info(self):
         import json
         import sys
 
@@ -262,58 +262,58 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             ("Plugin", f"{self.Name} ({self.Version}) by {self.Author}"),
             ("OS", os.name),
             ("Python", sys.version),
-            ("Qt", qVersion()),
-            ("ModOrganizer2", self._organizer.appVersion()),
-            ("mod_load_order.txt", self.getModListTxtMapping()),
-            ("Mods", json.dumps(self.getMo2Mods(), default=repr)),
-            ("Unmanaged mods", json.dumps(self.getUnmanagedMods(), default=repr)),
+            ("Qt", str(qVersion())),
+            ("ModOrganizer2", str(self._organizer.appVersion())),
+            ("mod_load_order.txt", self.mod_list_mapping()),
+            ("Mods", self.get_mods()),
+            ("Unmanaged mods", self.get_unmanaged_mods()),
         ]
-        qInfo("Debug Info: " + " ".join(f"{k} = '{str(v)}';" for k, v in stuff))
+        qInfo("Debug Info: " + " ".join(f'{k} = "{v}";' for k, v in stuff))
 
     def onUserInterfaceInitialized(self, window: QMainWindow):
         self.show_error_popups = False
 
         # MO2 always calls onUserInterfaceInitialized for every plugin, even when not active
-        if not self.isPluginActive():
+        if not self.is_plugin_active():
             return
 
         if icon := getattr(self, "CustomSettingsIcon", None):
-            self.customSettingsAction = self.addCustomToolbarAction(
+            self.settings_action = self.add_custom_toolbar_action(
                 window,
                 getattr(self, "CustomSettingsName", f"{self.gameName()} Settings"),
                 icon,
-                self.onCustomSettingsOpened,
+                self.open_settings_dialog,
             )
-            self.customSettingsDialog = DarktideSettingsDialog(self)
+            self.settings_dialog = DarktideSettingsDialog(self)
 
-    def onCustomSettingsOpened(self):
-        (self.customSettingsDialog or DarktideSettingsDialog(self)).exec()
-        self.customSettingsDialog = None
+    def open_settings_dialog(self):
+        (self.settings_dialog or DarktideSettingsDialog(self)).exec()
+        self.settings_dialog = None
 
-    def generateCustomMappings(self):
-        mo2Mods = self.getMo2Mods()
+    def build_custom_mappings(self):
+        mods = self.get_mods()
         mappings = []
 
         # add our custom mappings for DML, if installed
-        if dml := next((m for m in mo2Mods if m.NexusID == NEXUS_DML and m.Active), None):
-            toAdd = self.applyDML(self._organizer.modList().getMod(dml.Name))
+        if dml := next((m for m in mods if m.nexus_id == NEXUS_DML and m.active), None):
+            toAdd = self.apply_dml(self._organizer.modList().getMod(dml.name))
             mappings.extend(toAdd)
 
         # add mapping for mod_load_order.txt
-        mappings.append(self.writeModListTxt(mo2Mods))
+        mappings.append(self.apply_mod_list(mods))
 
         # virtualize user_settings.config to override language
-        if config := self.writeUserSettingsConfig():
+        if config := self.apply_user_settings():
             mappings.append(config)
 
         return mappings
 
     def onAboutToRun(self, appPath: str):
         try:
-            if self.getSetting("debug_info"):
-                self.debugInfo()
+            if self.setting("debug_info"):
+                self.debug_info()
 
-            self.customMappings = self.generateCustomMappings()
+            self.custom_mappings = self.build_custom_mappings()
 
             return True
         except PluginError as err:
@@ -322,21 +322,22 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
     def onFinishedRun(self, appPath: str, exitCode: int):
         STILL_ACTIVE = 259
-        OK_STATUS = {None, 0, STILL_ACTIVE}
+        STATUS_OK = {None, 0, STILL_ACTIVE}
 
-        if exitCode not in OK_STATUS and self.getSetting("inspect_crash"):
+        if exitCode not in STATUS_OK and self.setting("inspect_crash"):
             msg = [f"{Path(appPath).name} exited with code {exitCode}"]
-
-            logDir = Path(self.documentsDirectory().absoluteFilePath("console_logs"))
-            if latestLog := max(logDir.glob("*.log"), key=os.path.getmtime, default=None):
-                with latestLog.open("r") as f:
+            console_logs = Path(
+                self.documentsDirectory().absoluteFilePath("console_logs")
+            )
+            if log := max(console_logs.glob("*.log"), key=os.path.getmtime, default=None):
+                with log.open("r", encoding="utf-8") as f:
                     if errors := re.findall(
                         r"<<Lua Error>>(.+?)<</Lua Error>>",
                         f.read(),
                         re.DOTALL | re.IGNORECASE,
                     ):
 
-                        def _timeAgo(seconds):
+                        def _time_ago(seconds):
                             for unit, name in [
                                 (60 * 60 * 24, "day"),
                                 (60 * 60, "hour"),
@@ -350,44 +351,44 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
                         seconds = (
                             datetime.now(tz=timezone.utc).timestamp()
-                            - latestLog.stat().st_mtime
+                            - log.stat().st_mtime
                         )
                         msg.append(
-                            f"\n\nRecent Lua Errors in\n{latestLog.name}\n    (modified {_timeAgo(seconds)})\n"
+                            f"\n\nRecent Lua Errors in\n{log.name}\n    (modified {_time_ago(seconds)})\n"
                         )
                         msg.extend(f"\n#{i}: {s}" for i, s in enumerate(errors, 1))
 
             qCritical("".join(msg), popup=self.show_error_popups and "delayed")
 
     def onModInstalled(self, mod: mobase.IModInterface):
-        self.autoDetectMod(mod)
+        self.identify_mod(mod)
         if mod.nexusId() == NEXUS_DML:
-            self.installDML(mod)
+            self.install_dml(mod)
 
     def mappings(self):
-        return self.customMappings
+        return self.custom_mappings
 
     def settings(self):
         ## FIXME: In MO 2.4.4 PluginSetting.key throws "TypeError: No Python class registered for C++ class class QString". If it wasn't for that, I would probably just have these as mobase.PluginSetting
         return [mobase.PluginSetting(*s) for s in SETTINGS]
 
-    def customMappingsDirectory(self):
+    def custom_mappings_directory(self):
         return Path(self._organizer.basePath()) / "custom_mappings/Darktide Mod Loader"
 
-    def getModListTxtMapping(self):
+    def mod_list_mapping(self):
         ## FIXME: I wish I didn't need to do this... but same issue as settings()
         return (
             str(self._organizer.profilePath() / Path("mod_load_order.txt")),
             self.dataDirectory().absoluteFilePath("mod_load_order.txt"),
         )
 
-    def getMo2Mods(self):
+    def get_mods(self):
         modList = self._organizer.modList()
         return [
             Mod(
                 modList.priority(name),
                 bool(modList.state(name) & mobase.ModState.ACTIVE),
-                self.getModFolderName(mod),
+                self.get_mod_folder_name(mod),
                 mod.nexusId(),
                 name,
             )
@@ -395,22 +396,22 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             if (mod := modList.getMod(name))
         ]
 
-    def getUnmanagedMods(self):
-        listFile = Path(self.getModListTxtMapping()[1])
-        if not listFile.exists():
+    def get_unmanaged_mods(self):
+        mod_list = Path(self.mod_list_mapping()[1])
+        if not mod_list.exists():
             return []
 
-        modsDir = self.dataDirectory()
-        with listFile.open(encoding="utf-8") as f:
+        data = self.dataDirectory()
+        with mod_list.open("r", encoding="utf-8") as f:
             return [
                 name
                 for line in f.read().splitlines()
                 if (name := line.strip())
                 and not name.startswith("--")
-                and modsDir.exists(f"{name}/{name}.mod")
+                and data.exists(f"{name}/{name}.mod")
             ]
 
-    def autoDetectMod(self, mod: mobase.IModInterface):
+    def identify_mod(self, mod: mobase.IModInterface):
         if mod.nexusId():
             return
         tree = mod.fileTree()
@@ -425,66 +426,66 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             mod.setNexusID(NEXUS_DMF)
             return
 
-    def installDML(self, mod: mobase.IModInterface):
+    def install_dml(self, mod: mobase.IModInterface):
         assert mod.nexusId() == NEXUS_DML
 
-        modDir = Path(mod.absolutePath())
-        customDir = self.customMappingsDirectory()
-        shutil.rmtree(customDir, ignore_errors=True)
+        mod_dir = Path(mod.absolutePath())
+        custom_dir = self.custom_mappings_directory()
+        shutil.rmtree(custom_dir, ignore_errors=True)
 
         ## TODO: this whole "manual mapping of parts of a mod" thing could be made into a helper class or whatever
 
         # move the contents of DML into a custom folder, we will map them manually
-        def _moveFiles(name: str, entry: mobase.FileTreeEntry):
+        def _move_contents(name: str, entry: mobase.FileTreeEntry):
             path = entry.path()
-            src = modDir / path
+            src = mod_dir / path
             if src.exists():
-                shutil.move(src, customDir / path)
+                shutil.move(src, custom_dir / path)
             return mobase.IFileTree.WalkReturn.CONTINUE
 
-        mod.fileTree().walk(_moveFiles)
+        mod.fileTree().walk(_move_contents)
 
         # unwrap the mods/ directory and move contents back so they can naturally get overridden by other mods, e.g. "Auto Mod Loading and Ordering"
-        customMods = customDir / "mods"
-        for item in os.listdir(customMods):
-            shutil.move(customMods / item, modDir / item)
-        os.rmdir(customMods)  # not needed but I'm paranoid
+        custom_mods_dir = custom_dir / "mods"
+        for item in os.listdir(custom_mods_dir):
+            shutil.move(custom_mods_dir / item, mod_dir / item)
+        os.rmdir(custom_mods_dir)  # not needed but I'm paranoid
 
-        qInfo(f"Installed Darktide Mod Loader to: '{customDir}'")
+        qInfo(f"Installed Darktide Mod Loader to: '{custom_dir}'")
 
-    def applyDML(self, mod: mobase.IModInterface):
+    def apply_dml(self, mod: mobase.IModInterface):
         assert mod.nexusId() == NEXUS_DML
 
-        gameDir = Path(self.gameDirectory().absolutePath())
-        customDir = self.customMappingsDirectory()
-        if not customDir.exists():
+        game_dir = Path(self.gameDirectory().absolutePath())
+        custom_dir = self.custom_mappings_directory()
+        if not custom_dir.exists():
             raise PluginError(
-                f"Tried to apply DML but missing directory: '{customDir}'. Try reinstalling Darktide Mod Loader"
+                f"Tried to apply DML but missing directory: '{custom_dir}'. Try reinstalling Darktide Mod Loader"
             )
 
         BUNDLE_DB = "bundle/bundle_database.data"
-        gameBundle = gameDir / BUNDLE_DB
-        customBundle = customDir / BUNDLE_DB
-        customBundleBak = customDir / (BUNDLE_DB + ".bak")
+        game_bundle = game_dir / BUNDLE_DB
+        custom_bundle = custom_dir / BUNDLE_DB
+        custom_bundle_bak = custom_dir / (BUNDLE_DB + ".bak")
 
-        foundPatchedBundle = (
-            customBundle.is_file()
-            and customBundleBak.is_file()
-            and filecmp.cmp(gameBundle, customBundleBak)
-            and not filecmp.cmp(gameBundle, customBundle)
+        found_patched_bundle = (
+            custom_bundle.is_file()
+            and custom_bundle_bak.is_file()
+            and filecmp.cmp(game_bundle, custom_bundle_bak)
+            and not filecmp.cmp(game_bundle, custom_bundle)
         )
 
-        if not foundPatchedBundle:
-            patcher = customDir / "tools/dtkit-patch.exe"
+        if not found_patched_bundle:
+            patcher = custom_dir / "tools/dtkit-patch.exe"
             if not patcher.is_file():
                 raise PluginError(
-                    f"Tried to patch '{customBundle}' with DML but missing patcher: '{patcher}'. Try reinstalling Darktide Mod Loader"
+                    f"Tried to patch '{custom_bundle}' with DML but missing patcher: '{patcher}'. Try reinstalling Darktide Mod Loader"
                 )
 
             # patch a fresh bundle database
-            shutil.copy(gameBundle, customBundle)
+            shutil.copy(game_bundle, custom_bundle)
             patcher = subprocess.run(
-                [patcher, "--patch", customBundle.parent],
+                [patcher, "--patch", custom_bundle.parent],
                 capture_output=True,
                 check=True,
                 creationflags=subprocess.CREATE_NO_WINDOW,
@@ -495,10 +496,10 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         mappings = [
             mobase.Mapping(
                 str(path.absolute()),
-                str(gameDir / path.relative_to(customDir)),
+                str(game_dir / path.relative_to(custom_dir)),
                 not path.is_file(),
             )
-            for path in customDir.iterdir()
+            for path in custom_dir.iterdir()
         ]
         if not mappings:
             raise PluginError(
@@ -507,113 +508,113 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
         return mappings
 
-    def writeModListTxt(self, mo2Mods: List[Mod] = None):
-        mo2Mods = mo2Mods or self.getMo2Mods()
-        modsDict: Dict[str, Mod] = {}
+    def apply_mod_list(self, mods: List[Mod] = None):
+        mods = mods or self.get_mods()
+        mods_dict: Dict[str, Mod] = {}
 
         # add MO2 mods
-        for mod in mo2Mods:
+        for mod in mods:
             # here we only care about things that go into mod_load_order.txt
-            if not mod.FolderName:
+            if not mod.folder_name:
                 continue
 
             # make sure active mods dont get deactivated by other mods changing the same folder
-            existing = modsDict.get(mod.FolderName)
-            if not existing or (not existing.Active and mod.Active):
-                modsDict[mod.FolderName] = mod
+            existing = mods_dict.get(mod.folder_name)
+            if not existing or (not existing.active and mod.active):
+                mods_dict[mod.folder_name] = mod
 
         # optionally add unmanaged mods
-        if self.getSetting("combine_with_unmanaged_mods"):
-            unmanagedMods = self.getUnmanagedMods()
-            unmanagedPriority = (
-                -len(unmanagedMods)
-                if self.getSetting("load_unmanaged_mods_first")
-                else len(mo2Mods)
+        if self.setting("combine_with_unmanaged_mods"):
+            unmanaged_mods = self.get_unmanaged_mods()
+            unmanaged_priority = (
+                -len(unmanaged_mods)
+                if self.setting("load_unmanaged_mods_first")
+                else len(mods)
             )
-            for i, name in enumerate(unmanagedMods, unmanagedPriority):
-                if name not in modsDict:
-                    modsDict[name] = Mod(i, True, name)
+            for i, name in enumerate(unmanaged_mods, unmanaged_priority):
+                if name not in mods_dict:
+                    mods_dict[name] = Mod(i, True, name)
 
         # generate new mod list
-        mapping = self.getModListTxtMapping()
-        with open(mapping[0], mode="w", encoding="utf-8") as f:
-            for mod in sorted(modsDict.values(), key=lambda m: m.Priority):
-                if mod.FolderName in IGNORE:
+        mod_list = self.mod_list_mapping()
+        with open(mod_list[0], mode="w", encoding="utf-8") as f:
+            for mod in sorted(mods_dict.values(), key=lambda m: m.priority):
+                if mod.folder_name in IGNORE:
                     continue
 
-                if mod.Active:
-                    f.write(f"{mod.FolderName}\n")
+                if mod.active:
+                    f.write(f"{mod.folder_name}\n")
                 else:
-                    f.write(f"--{mod.FolderName}\n")
+                    f.write(f"--{mod.folder_name}\n")
 
-        return mobase.Mapping(*mapping, False)
+        return mobase.Mapping(*mod_list, False)
 
-    def writeUserSettingsConfig(self):
-        if lang := self.getSetting("override_language"):
+    def apply_user_settings(self):
+        if lang := self.setting("override_language"):
             CONFIG = "user_settings.config"
-            userConfig = Path(self.documentsDirectory().absoluteFilePath(CONFIG))
-            virtConfig = Path(self._organizer.overwritePath()) / CONFIG
+            user_config = Path(self.documentsDirectory().absoluteFilePath(CONFIG))
+            virt_config = Path(self._organizer.overwritePath()) / CONFIG
 
             md5 = hashlib.md5()
             md5.update(lang.encode("utf-8"))
-            if userConfig.is_file():
-                md5.update(userConfig.read_bytes())
-            configHash = md5.digest().hex().casefold()
+            if user_config.is_file():
+                md5.update(user_config.read_bytes())
+            config_hash = md5.digest().hex().casefold()
 
-            isNewConfig = configHash != self.get(CONFIG)
-            if isNewConfig:
-                self.set(CONFIG, configHash, False)
+            is_new_config = config_hash != self.persistent(CONFIG)
+            if is_new_config:
+                self.set_persistent(CONFIG, config_hash, False)
 
                 pattern = re.compile(r"^\s*language_id\s*=\s*\".*?\"\s*$", re.IGNORECASE)
-                with virtConfig.open("w", encoding="utf-8", newline="\n") as virt:
-                    if userConfig.is_file():
-                        with userConfig.open("r", encoding="utf-8") as user:
+                with virt_config.open("w", encoding="utf-8", newline="\n") as virt:
+                    if user_config.is_file():
+                        with user_config.open("r", encoding="utf-8") as user:
                             virt.writelines(
                                 line for line in user if not pattern.match(line)
                             )
                     virt.write(f'language_id = "{lang}"\n')
 
-                qInfo(f"Generated new virtual config '{virtConfig}'")
+                qInfo(f"Generated new virtual config '{virt_config}'")
 
-            return mobase.Mapping(str(virtConfig), str(userConfig), False, True)
+            return mobase.Mapping(str(virt_config), str(user_config), False, True)
 
-    def getModFolderName(self, mod: mobase.IModInterface):
+    def get_mod_folder_name(self, mod: mobase.IModInterface):
         if mod.isSeparator():
             return
         if mod.nexusId() in IGNORE:
             return
 
         tree = mod.fileTree()
-        folderName: str = None
+        folder_name: str = None
 
-        def _findModFile(name: str, entry: mobase.FileTreeEntry):
+        def _find_mod_file(name: str, entry: mobase.FileTreeEntry):
             if entry.isDir():
                 name = entry.name()
                 if tree.find(f"{name}/{name}.mod", mobase.FileTreeEntry.FILE):
-                    nonlocal folderName
-                    folderName = name
+                    nonlocal folder_name
+                    folder_name = name
                     return mobase.IFileTree.WalkReturn.STOP
 
             return mobase.IFileTree.WalkReturn.CONTINUE
 
-        tree.walk(_findModFile)
+        tree.walk(_find_mod_file)
 
-        if not folderName:
+        if not folder_name:
             qCritical(f"Could not find mod folder name for: '{mod.name()}'")
 
-        return folderName
+        return folder_name
 
 
 class DarktideSettingsDialog(QDialog):
     def __init__(self, game: Warhammer40000DarktideGame):
         QDialog.__init__(self)
         self.game = game
-        self.setWindowTitle(game.customSettingsAction.text())
-        self.setWindowIcon(game.customSettingsAction.icon())
-        self.finished.connect(self.onFinished)
-        self.initWidgets()
+        self.setWindowTitle(game.settings_action.text())
+        self.setWindowIcon(game.settings_action.icon())
+        self.finished.connect(self.on_finished)
+        self.init_widgets()
 
-    def initWidgets(self):
+    def init_widgets(self):
         self.widgets: Dict[str, QWidget] = {}
         self.initial: Dict[str, bool] = {}
         layout = QVBoxLayout(self)
@@ -632,25 +633,27 @@ class DarktideSettingsDialog(QDialog):
         )
 
         # create setting widgets
-        for settingKey, settingDesc, settingDefault in SETTINGS:
-            data = self.game.getSetting(settingKey)
-            self.initial[settingKey] = data
+        for setting_key, setting_desc, setting_default in SETTINGS:
+            data = self.game.setting(setting_key)
+            self.initial[setting_key] = data
 
-            if isinstance(settingDefault, bool):
+            if isinstance(setting_default, bool):
                 # simple toggle
-                checkbox = QCheckBox(settingKey)
-                checkbox.setToolTip(settingDesc)
+                checkbox = QCheckBox(setting_key)
+                checkbox.setToolTip(setting_desc)
                 checkbox.setChecked(data)
-                checkbox.toggled.connect(lambda v: self.onSettingChanged(v, settingKey))
-                self.widgets[settingKey] = checkbox
+                checkbox.toggled.connect(
+                    lambda v: self.on_setting_changed(v, setting_key)
+                )
+                self.widgets[setting_key] = checkbox
                 layout.addWidget(checkbox)
                 continue
 
-            if choices := SETTINGS_CHOICES.get(settingKey):
+            if choices := SETTINGS_CHOICES.get(setting_key):
                 # dropdown select
                 combo = QComboBox()
-                combo.setToolTip(settingDesc)
-                combo.addItem(settingKey, "")
+                combo.setToolTip(setting_desc)
+                combo.addItem(setting_key, "")
                 for label, choice in choices:
                     combo.addItem(label, choice)
                 combo.setCurrentIndex(max(0, combo.findData(data)))
@@ -663,15 +666,15 @@ class DarktideSettingsDialog(QDialog):
                 combo.currentIndexChanged.connect(_update_style)
                 combo.setItemData(0, QBrush(disabled), Qt.ItemDataRole.ForegroundRole)
 
-                self.widgets[settingKey] = combo
+                self.widgets[setting_key] = combo
                 layout.addWidget(combo)
                 continue
 
-        self.widgets["debug_info"].toggled.connect(lambda v: v and self.game.debugInfo())
+        self.widgets["debug_info"].toggled.connect(lambda v: v and self.game.debug_info())
 
-        self.updateSettingCoherency()
+        self.update_coherency()
 
-    def updateSettingCoherency(self):
+    def update_coherency(self):
         self.widgets["load_unmanaged_mods_first"].setEnabled(
             self.widgets["combine_with_unmanaged_mods"].isChecked()
         )
@@ -679,12 +682,12 @@ class DarktideSettingsDialog(QDialog):
             self.widgets["show_error_popups"].isChecked()
         )
 
-    def onSettingChanged(self, value: bool, key: str):
-        self.updateSettingCoherency()
+    def on_setting_changed(self, value: bool, key: str):
+        self.update_coherency()
 
-    def onFinished(self, result: int):
+    def on_finished(self, result: int):
         for k, v0 in self.initial.items():
             w = self.widgets[k]
             v = w.currentData() if isinstance(w, QComboBox) else w.isChecked()
             if v0 != v:
-                self.game.setSetting(k, v)
+                self.game.set_setting(k, v)
