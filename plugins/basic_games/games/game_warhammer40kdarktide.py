@@ -74,40 +74,35 @@ SETTINGS = [
     ),
     (
         "load_unmanaged_mods_first",
-        "When loading unmanaged mods, place them at the top of the mod load order (highest priority).\n"
+        "Place unmanaged mods at the top (highest priority) of the mod load order.\n"
         "If disabled, place them at the bottom (lowest priority).",
         False,
     ),
     (
         "show_error_popups",
-        "When MO2 runs without GUI, show a pop-up window for error messages.\n"
-        "If disabled, they only show up in the GUI and/or mo_interface.log",
+        "Show pop-up windows for errors when running MO2 without a GUI.\n"
+        "Normally they only show up in the GUI and mo_interface.log",
         True,
     ),
     (
         "inspect_crash",
-        "When the game finishes with a non-zero exit code, log an error message.\n"
-        "Also searches for Lua Errors in the latest log file in %APPDATA%\\Fatshark\\Darktide\\console_logs",
+        "Log errors on non-zero exit codes and scan Darktide console_logs for Lua errors.",
         True,
     ),
     (
         "override_language",
-        "Change the game's language by modifying a virtual copy of your user_settings.config\n"
-        'If "language_id" is modified elsewhere, e.g. binaries/mod_loader as documented in DMF, this will not work.\n'
-        "warning: While enabled, any changes the game makes to user_settings.config will be written to the virtual copy\n"
-        "  instead of the real file. These changes will be lost on the next launch with this setting enabled",
+        "Change the game's language via virtual user_settings.config\n"
+        "Warning: While enabled, the game's config changes are written to the virtual copy and LOST on next launch.",
         "",
     ),
     (
         "prefer_microsoft_store_documents",
-        "In the sorry case that both default and Microsoft Store documents exist, use %USERPROFILE%\\AppData\\Roaming\\Fatshark\\MicrosoftStore\\Darktide\n"
-        "If disabled, the usual path is used: %USERPROFILE%\\AppData\\Roaming\\Fatshark\\Darktide",
+        "In the sorry case that both exist, prefer the Microsoft Store documents path over the default.",
         False,
     ),
     (
         "debug_info",
-        "Log helpful stuff, including when the program/game is about to run.\n"
-        "If you encounter a problem, the log output might help fix it.",
+        "Log helpful stuff to fix issues.",
         False,
     ),
 ]
