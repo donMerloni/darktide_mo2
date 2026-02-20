@@ -248,6 +248,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         self.show_error_popups = self.setting("show_error_popups")
         self.settings_action: QAction = None
         self.settings_dialog: QDialog = None
+        self.custom_mappings = []
 
         organizer.onUserInterfaceInitialized(self.onUserInterfaceInitialized)
         organizer.onAboutToRun(self.onAboutToRun)
@@ -295,7 +296,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         if not self.setting("inspect_crash"):
             return
 
-        # EXIT_SUCCESS = 0    STILL_ACTIVE = 259
+        # EXIT_SUCCESS=0  STILL_ACTIVE=259
         EXIT_OK = {None, 0, 259} | {
             int(d)
             for i in self.setting("exit_code_whitelist").split(",")
@@ -583,7 +584,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         def _find_mod_file(name: str, entry: mobase.FileTreeEntry):
             if entry.isDir():
                 name = entry.name()
-                if tree.find(f"{name}/{name}.mod", mobase.FileTreeEntry.FILE):
+                if tree.find(f"{name}/{name}.mod", mobase.FileTreeEntry.FileTypes.FILE):
                     nonlocal folder_name
                     folder_name = name
                     return mobase.IFileTree.WalkReturn.STOP
