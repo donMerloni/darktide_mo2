@@ -13,7 +13,6 @@ from types import MethodType
 from typing import Callable, Dict, List, TypeAlias, Union
 
 import mobase
-
 from basic_games.basic_game import BasicGame, BasicGameMappings
 
 try:
@@ -139,6 +138,7 @@ class DarktideModInstaller(mobase.IPluginInstallerSimple):
         mobase.IPluginInstallerSimple.__init__(self)
 
     def init(self, organizer: mobase.IOrganizer):
+        self.organizer = organizer
         return True
 
     # fmt:off
@@ -162,12 +162,20 @@ class DarktideModInstaller(mobase.IPluginInstallerSimple):
         ]
 
     def install(self, name, tree, version, nexus_id):
-        new = tree.createOrphanTree("root_mod")
-        root = new.addDirectory("root")
-        qInfo(str(tree.detach()))
-        qInfo(str(tree.moveTo(root)))
+        game: Warhammer40000DarktideGame = self.organizer.getGame("warhammer40kdarktide")
+        nexus_id, is_root_mod = game.identify_mod(tree, nexus_id=nexus_id)
 
-        return (mobase.InstallResult.NOT_ATTEMPTED, new, version, nexus_id)
+        new_tree = tree.createOrphanTree("new_tree")
+        root = new_tree if is_root_mod else new_tree.addDirectory("mods")
+
+        def _restructure_tree(name: str, entry: mobase.FileTreeEntry):
+            if entry.parent() == tree:
+                entry.moveTo(root)
+            return mobase.IFileTree.WalkReturn.CONTINUE
+
+        tree.walk(_restructure_tree)
+
+        return (mobase.InstallResult.NOT_ATTEMPTED, new_tree, version, nexus_id)
 
 
 class BasedGame:
@@ -295,6 +303,12 @@ class BasedGame:
             self._organizer.setPersistent(self.name(), key, value, sync)
             return True
         return False
+
+    def mod_setting(self: BasicGame, mod: mobase.IModInterface, key: str, default=None):
+        return mod.pluginSetting(self.gameShortName(), key, default)
+
+    def set_mod_setting(self: BasicGame, mod: mobase.IModInterface, key: str, value):
+        return mod.setPluginSetting(self.gameShortName(), key, value)
 
 
 class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper):
@@ -432,7 +446,7 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
         qCritical("".join(msg), popup=self.show_error_popups and "delayed")
 
     def onModInstalled(self, mod: mobase.IModInterface):
-        self.identify_mod(mod)
+        self.identify_mod(mod.fileTree(), mod)
         # if mod.nexusId() == NEXUS_DML:
         #    self.install_dml(mod)
 
@@ -527,31 +541,42 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
                 and (data / f"mods/{name}/{name}.mod").is_file()
             ]
 
-    def identify_mod(self, mod: mobase.IModInterface):
-        if mod.nexusId():
-            return
-        tree = mod.fileTree()
-        name = mod.name()
-
-        if tree.find(".is_root_mod"):
-            qInfo(f"Mod '{name}' detected as root mod (contains '.is_root_mod')")
-            mod.setPluginSetting(self.name(), "is_root_mod", True)
-            return
-
-        if tree.find("mods", mobase.FileTreeEntry.DIRECTORY):
-            qInfo(f"Mod '{name}' detected as root mod (contains 'mods/')")
-            mod.setPluginSetting(self.name(), "is_root_mod", True)
-            return
+    def identify_mod(
+        self, tree: mobase.IFileTree, mod: mobase.IModInterface = None, nexus_id=0
+    ):
+        if mod:
+            nexus_id = mod.nexusId()
+            is_root_mod = self.mod_setting(mod, "is_root_mod", False)
+            info = lambda m: qInfo(f"Mod '{mod.name()}' {m}")
+        else:
+            is_root_mod = False
+            info = lambda m: qInfo(f"Mod {m}")
 
         if tree.find("tools/dtkit-patch.exe", mobase.FileTreeEntry.FileTypes.FILE):
-            qInfo(f"Mod '{name}' detected as DML (contains 'tools/dtkit-patch.exe')")
-            mod.setNexusID(NEXUS_DML)
-            return
+            info("detected as Darktide Mod Loader (contains 'tools/dtkit-patch.exe')")
+            nexus_id = NEXUS_DML
+            is_root_mod = True
 
         if tree.find("dmf/dmf.mod", mobase.FileTreeEntry.FileTypes.FILE):
-            qInfo(f"Mod '{name}' detected as DMF (contains 'dmf/dmf.mod')")
-            mod.setNexusID(NEXUS_DMF)
-            return
+            info("detected as Darktide Mod Framework (contains 'dmf/dmf.mod')")
+            nexus_id = NEXUS_DMF
+            is_root_mod = False
+
+        if tree.find("mods", mobase.FileTreeEntry.FileTypes.DIRECTORY):
+            info("detected as root mod (contains 'mods/')")
+            is_root_mod = True
+
+        if tree.find(".root", mobase.FileTreeEntry.FileTypes.FILE_OR_DIRECTORY):
+            info("detected as root mod (contains '.root')")
+            is_root_mod = True
+
+        if mod:
+            if is_root_mod:
+                self.set_mod_setting(mod, "is_root_mod", True)
+            if nexus_id:
+                mod.setNexusID(nexus_id)
+
+        return nexus_id, is_root_mod
 
     def install_dml(self, mod: mobase.IModInterface):
         assert mod.nexusId() == NEXUS_DML
