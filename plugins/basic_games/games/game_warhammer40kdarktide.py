@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from types import MethodType
 from typing import Callable, Dict, List, Union
 
 import mobase
@@ -634,8 +635,8 @@ class DarktideSettingsDialog(QDialog):
         pt = max(self.font().pointSize(), 11)
         self.setStyleSheet(
             f"* {{ font-size: {pt}pt; }}"
-            "QCheckBox { padding: 5px; border-radius: 5px; }"
-            f"QCheckBox:hover {{ background-color: {bg.name()}; color: {fg.name()};  }}"
+            "QDialog > * { padding: 5px; }"
+            f"QCheckBox:hover {{ background-color: {bg.name()}; color: {fg.name()}; }}"
             f'QComboBox[sad="true"] {{ color: {disabled.name()}; }}'
         )
 
@@ -652,6 +653,14 @@ class DarktideSettingsDialog(QDialog):
                 checkbox.toggled.connect(
                     lambda v, k=setting_key: self.on_setting_changed(k, v)
                 )
+
+                # make whole checkbox area clickable
+                setattr(
+                    checkbox,
+                    "hitButton",
+                    MethodType(lambda this, pos: this.rect().contains(pos), checkbox),
+                )
+
                 self.widgets[setting_key] = checkbox
                 layout.addWidget(checkbox)
                 continue
