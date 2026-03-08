@@ -4,8 +4,10 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from io import BytesIO, StringIO
 from pathlib import Path
 from types import MethodType
 from typing import Callable, Dict, List, Union
@@ -194,7 +196,52 @@ class BasedGame:
             game.gameName() == self.gameName() and game.author() == self.author()
         )
 
-    def setting(self: BasicGame, key: str):
+    @contextmanager
+    def open_cached(
+        self: BasicGame,
+        cache_key,
+        *hash_args,
+        file,
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+    ):
+        file = Path(file)
+        if self.persistent(cache_key) == self.calc_hash(*hash_args, file):
+            try:
+                yield None, False
+            finally:
+                return
+
+        txt = "b" not in mode
+        # using newline=None here to normalize any line endings to '\n'
+        io = StringIO(newline=None) if txt else BytesIO()
+        try:
+            yield io, True
+        finally:
+            with file.open("w" if txt else "wb", encoding=encoding, newline=newline) as f:
+                io.seek(0)
+                shutil.copyfileobj(io, f)
+            self.set_persistent(cache_key, self.calc_hash(*hash_args, file), force=True)
+
+    @staticmethod
+    def calc_hash(*args, str=True):
+        hash = hashlib.blake2s()
+        for arg in args:
+            if isinstance(arg, int):
+                length = int((arg.bit_length() + 7) // 8 or 1)
+                hash.update(arg.to_bytes(length, "big", signed=True))
+            elif isinstance(arg, str):
+                hash.update(arg.encode("utf-8"))
+            elif isinstance(arg, Path):
+                if arg.is_file():
+                    with arg.open("rb") as f:
+                        while chunk := f.read(64 * 1024):
+                            hash.update(chunk)
+            elif arg is not None:
+                hash.update(arg)
+        return hash.hexdigest().lower() if str else hash
+
         return self._organizer.pluginSetting(self.name(), key)
 
     def set_setting(self: BasicGame, key: str, value):
@@ -203,8 +250,11 @@ class BasedGame:
     def persistent(self: BasicGame, key: str, default=None):
         return self._organizer.persistent(self.name(), key, default)
 
-    def set_persistent(self: BasicGame, key: str, value, sync=True):
-        self._organizer.setPersistent(self.name(), key, value, sync)
+    def set_persistent(self, key: str, value, sync=True, force=False):
+        if force or value != self.persistent(key):
+            self._organizer.setPersistent(self.name(), key, value, sync)
+            return True
+        return False
 
 
 class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper):
@@ -549,24 +599,20 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
             user_config = Path(self.documentsDirectory().absoluteFilePath(CONFIG))
             virt_config = Path(self._organizer.overwritePath()) / CONFIG
 
-            md5 = hashlib.md5()
-            md5.update(lang.encode("utf-8"))
-            if user_config.is_file():
-                md5.update(user_config.read_bytes())
-            config_hash = md5.digest().hex().casefold()
+            with self.open_cached(CONFIG, lang, user_config, file=virt_config) as (
+                f,
+                new,
+            ):
+                if not new:
+                    raise
 
-            is_new_config = config_hash != self.persistent(CONFIG)
-            if is_new_config:
-                self.set_persistent(CONFIG, config_hash, False)
-
-                pattern = re.compile(r"^\s*language_id\s*=\s*\".*?\"\s*$", re.IGNORECASE)
-                with virt_config.open("w", encoding="utf-8", newline="\n") as virt:
-                    if user_config.is_file():
-                        with user_config.open("r", encoding="utf-8") as user:
-                            virt.writelines(
-                                line for line in user if not pattern.match(line)
-                            )
-                    virt.write(f'language_id = "{lang}"\n')
+                if user_config.is_file():
+                    pattern = re.compile(
+                        r"^\s*language_id\s*=\s*\".*?\"\s*$", re.IGNORECASE
+                    )
+                    with user_config.open("r", encoding="utf-8") as user:
+                        f.writelines(line for line in user if not pattern.match(line))
+                f.write(f'language_id = "{lang}"\n')
 
                 qInfo(f"Generated new virtual config '{virt_config}'")
 
