@@ -407,8 +407,8 @@ class Warhammer40000DarktideGame(BasicGame, BasedGame, mobase.IPluginFileMapper)
 
         # add our custom mappings for DML, if installed
         if dml := next((m for m in mods if m.nexus_id == NEXUS_DML and m.active), None):
-            toAdd = self.apply_dml(self._organizer.modList().getMod(dml.name))
-            mappings.extend(toAdd)
+            stuff = self.apply_dml(self._organizer.modList().getMod(dml.name))
+            mappings.extend(stuff)
 
         # add mapping for mod_load_order.txt
         mappings.append(self.apply_mod_list(mods))
