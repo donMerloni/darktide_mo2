@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
 from types import MethodType
-from typing import Callable, Dict, List, Union
+from typing import Callable, Dict, List, TypeAlias, Union
 
 import mobase
 
@@ -134,8 +134,10 @@ SETTINGS_CHOICES = {
 
 
 class BasedGame:
+    Game: TypeAlias = Union[BasicGame, "BasedGame"]
+
     def find_directory(
-        self: BasicGame,
+        self: Game,
         paths: Union[str, List[str], Callable[[BasicGame], str]],
         default: Callable[[BasicGame], QDir] = None,
     ):
@@ -190,7 +192,7 @@ class BasedGame:
             except Exception as e:
                 qCritical(str(e))
 
-    def is_plugin_active(self: BasicGame):
+    def is_plugin_active(self: Game):
         game = self._organizer.managedGame()
         return game == self or (
             game.gameName() == self.gameName() and game.author() == self.author()
@@ -198,7 +200,7 @@ class BasedGame:
 
     @contextmanager
     def open_cached(
-        self: BasicGame,
+        self: Game,
         cache_key,
         *hash_args,
         file,
@@ -242,15 +244,16 @@ class BasedGame:
                 hash.update(arg)
         return hash.hexdigest().lower() if str else hash
 
+    def setting(self: Game, key: str):
         return self._organizer.pluginSetting(self.name(), key)
 
-    def set_setting(self: BasicGame, key: str, value):
+    def set_setting(self: Game, key: str, value):
         self._organizer.setPluginSetting(self.name(), key, value)
 
-    def persistent(self: BasicGame, key: str, default=None):
+    def persistent(self: Game, key: str, default=None):
         return self._organizer.persistent(self.name(), key, default)
 
-    def set_persistent(self, key: str, value, sync=True, force=False):
+    def set_persistent(self: Game, key: str, value, sync=True, force=False):
         if force or value != self.persistent(key):
             self._organizer.setPersistent(self.name(), key, value, sync)
             return True
