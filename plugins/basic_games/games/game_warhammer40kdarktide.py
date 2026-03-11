@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from io import BytesIO, StringIO
 from pathlib import Path
 from types import MethodType
-from typing import Callable, Dict, List, TypeAlias, Union
+from typing import Callable, Dict, List, Union
 
 import mobase
 
@@ -134,7 +134,7 @@ SETTINGS_CHOICES = {
 
 
 class BasedGame:
-    Game: TypeAlias = Union[BasicGame, "BasedGame"]
+    Game = Union[BasicGame, "BasedGame"]
 
     def find_directory(
         self: Game,
